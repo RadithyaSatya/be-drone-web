@@ -25,7 +25,7 @@ Key Components:
 
 Import the Postman collection to analyze and test all of the available endpoints
 
-
+[View Postman Collection](https://rishaldy7-8367785.postman.co/workspace/rishaldy-7's-Workspace~acebe5a2-c112-41c1-84f4-3b3a4ed315e0/collection/50620325-c209fda0-c9b4-49c4-9be1-8fe051320cf7?action=share&creator=50620325)
 
 ## ⚙️ Run
 
