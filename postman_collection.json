@@ -1,0 +1,221 @@
+{
+  "info": {
+    "name": "XFlight Backend",
+    "description": "Postman collection for XFlight backend endpoints.",
+    "_postman_id": "7c0cb8c2-9fb1-4d15-98a5-4e4f1c6d2a5b",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get All Missions",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/missions",
+          "host": ["{{baseUrl}}"],
+          "path": ["missions"]
+        }
+      }
+    },
+    {
+      "name": "Get Mission By ID",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/missions/1",
+          "host": ["{{baseUrl}}"],
+          "path": ["missions", "1"]
+        }
+      }
+    },
+    {
+      "name": "Complete Mission",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/missions/1/complete",
+          "host": ["{{baseUrl}}"],
+          "path": ["missions", "1", "complete"]
+        }
+      }
+    },
+    {
+      "name": "Get Recurring Missions",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/missions/recurring",
+          "host": ["{{baseUrl}}"],
+          "path": ["missions", "recurring"]
+        }
+      }
+    },
+    {
+      "name": "Get Last Mission",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/missions/last/1",
+          "host": ["{{baseUrl}}"],
+          "path": ["missions", "last", "1"]
+        }
+      }
+    },
+    {
+      "name": "Get Scheduled Missions",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/missions/scheduled",
+          "host": ["{{baseUrl}}"],
+          "path": ["missions", "scheduled"]
+        }
+      }
+    },
+    {
+      "name": "Get Missions By User",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/missions/user/1",
+          "host": ["{{baseUrl}}"],
+          "path": ["missions", "user", "1"]
+        }
+      }
+    },
+    {
+      "name": "Register Mission",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": 1,\n  \"uav_id\": 1,\n  \"mission_name\": \"Test Mission\",\n  \"schedule\": \"2025-01-01T00:00:00Z\",\n  \"is_recurring\": false,\n  \"status\": \"Scheduled\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 10.0,\n      \"action\": \"hold\",\n      \"action_duration\": 5\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/register-mission",
+          "host": ["{{baseUrl}}"],
+          "path": ["register-mission"]
+        }
+      }
+    },
+    {
+      "name": "Get Latest Location",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/get-location/1/1",
+          "host": ["{{baseUrl}}"],
+          "path": ["get-location", "1", "1"]
+        }
+      }
+    },
+    {
+      "name": "Upload Footage",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "uav_id",
+              "value": "1",
+              "type": "text"
+            },
+            {
+              "key": "file",
+              "type": "file",
+              "src": ""
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/upload-footage",
+          "host": ["{{baseUrl}}"],
+          "path": ["upload-footage"]
+        }
+      }
+    },
+    {
+      "name": "Submit Telemetry Batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logs\": [\n    {\n      \"mission_id\": 1,\n      \"uav_id\": 1,\n      \"waypoints\": \"1\",\n      \"altitude\": 100,\n      \"coordinate\": \"-6.2,106.8\",\n      \"batt\": 80,\n      \"time_in_air\": \"2025-01-01T00:00:00Z\"\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/telemetry",
+          "host": ["{{baseUrl}}"],
+          "path": ["telemetry"]
+        }
+      }
+    },
+    {
+      "name": "Get Mission Telemetry",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/get-telemetry/1",
+          "host": ["{{baseUrl}}"],
+          "path": ["get-telemetry", "1"]
+        }
+      }
+    },
+    {
+      "name": "Docking Heartbeat",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"docking_id\": \"dock-1\",\n  \"online\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/docking/heartbeat",
+          "host": ["{{baseUrl}}"],
+          "path": ["docking", "heartbeat"]
+        }
+      }
+    },
+    {
+      "name": "Docking WS",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/ws/docking?docking_id=dock-1",
+          "host": ["{{baseUrl}}"],
+          "path": ["ws", "docking"],
+          "query": [
+            {
+              "key": "docking_id",
+              "value": "dock-1"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080"
+    }
+  ]
+}

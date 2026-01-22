@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"xflight-backend/api"
 
@@ -15,9 +16,10 @@ import (
 var db *sql.DB
 
 func main() {
-	connStr := "host=172.15.3.149 port=5432 user=XFlight dbname=XFlight sslmode=disable password=!Gajah17#!"
+	cfg := loadConfig()
+
 	var err error
-	db, err = sql.Open("postgres", connStr)
+	db, err = sql.Open("postgres", cfg.dbConn)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -28,11 +30,19 @@ func main() {
 
 	log.Println("Successfully connected to PostgreSQL database!")
 
-	router := mux.NewRouter()
 	h := api.NewHandlers(db)
+	router := setupRouter(h)
+
+	log.Printf("Server starting on port %s...", cfg.addr)
+	log.Fatal(http.ListenAndServe(cfg.addr, corsMiddleware(router)))
+}
+
+func setupRouter(h *api.Handlers) *mux.Router {
+	router := mux.NewRouter()
 
 	router.HandleFunc("/missions", h.GetAllMissions).Methods("GET")
 	router.HandleFunc("/missions/{id}", h.GetMissionByID).Methods("GET")
+	router.HandleFunc("/missions/{id}/complete", h.CompleteMission).Methods("POST")
 	router.HandleFunc("/missions/recurring", h.GetRecurringMissions).Methods("GET")
 	router.HandleFunc("/missions/last/{user_id}", h.GetLastMission).Methods("GET")
 	router.HandleFunc("/missions/scheduled", h.GetScheduledMissions).Methods("GET")
@@ -46,9 +56,28 @@ func main() {
 		http.StripPrefix("/footages/", http.FileServer(http.Dir("./uploads/footages"))))
 	router.HandleFunc("/telemetry", h.SubmitBatchMissionLogs).Methods("POST")
 	router.HandleFunc("/get-telemetry/{mission_id}", h.GetMissionTelemetry).Methods("GET")
+	router.HandleFunc("/docking/heartbeat", h.DockingHeartbeat).Methods("POST")
+	router.HandleFunc("/ws/docking", h.DockingStatusWS)
 	// router.HandleFunc("/api/missions/{mission_id}/telemetry", h.GetMissionTelemetry).Methods("GET")
 
-	port := "0.0.0.0:8080"
-	log.Printf("Server starting on port %s...", port)
-	log.Fatal(http.ListenAndServe(port, router))
+	return router
+}
+
+type config struct {
+	dbConn string
+	addr   string
+}
+
+func loadConfig() config {
+	return config{
+		dbConn: getEnv("DB_CONN", "user=macbook dbname=xflight sslmode=disable password="),
+		addr:   getEnv("ADDR", "127.0.0.1:8080"),
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

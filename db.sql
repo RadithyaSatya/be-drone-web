@@ -100,5 +100,3 @@ INSERT INTO users (
 
 TRUNCATE TABLE mission_log;
 ALTER SEQUENCE mission_log_id_seq RESTART WITH 1;
-    
-);
