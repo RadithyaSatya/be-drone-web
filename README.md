@@ -27,6 +27,157 @@ Import the Postman collection to analyze and test all of the available endpoints
 
 [View Postman Collection](https://rishaldy7-8367785.postman.co/workspace/rishaldy-7's-Workspace~acebe5a2-c112-41c1-84f4-3b3a4ed315e0/collection/50620325-c209fda0-c9b4-49c4-9be1-8fe051320cf7?action=share&creator=50620325)
 
+---
+
+## ⚡ Realtime Telemetry (HTTP → WebSocket)
+
+**Goal**: Device gateways/services send realtime telemetry to backend HTTP endpoints, and the backend forwards it to frontend clients via WebSocket.
+
+### Data Flow (short)
+1. A producer sends telemetry to `POST /realtime/telemetry`.
+2. Backend validates and normalizes the request body.
+3. Backend pushes the message to WS clients subscribed to the same `drone_id`.
+4. Frontend receives realtime updates on `/ws/telemetry`.
+
+### HTTP Ingestion Contract
+Endpoint:
+- `POST /realtime/telemetry`
+
+Request JSON:
+```json
+{
+  "drone_id": "DRN-001",
+  "kind": "telemetry",
+  "metric": "battery",
+  "payload": {
+    "percent": 78.2,
+    "voltage": 15.6
+  }
+}
+```
+
+Fields:
+- `drone_id` (required)
+- `kind` (required): `telemetry` or `status`
+- `metric` (required when `kind=telemetry`)
+- `payload` (required): object
+
+### WebSocket Message Mapping
+When the backend accepts ingestion, it emits:
+```json
+{
+  "drone_id": "DRN-001",
+  "kind": "telemetry",
+  "metric": "battery",
+  "ts": "2026-02-05T10:00:00Z",
+  "payload": {
+    "percent": 78.2,
+    "voltage": 15.6
+  }
+}
+```
+
+For status:
+```json
+{
+  "drone_id": "DRN-001",
+  "kind": "status",
+  "ts": "2026-02-05T10:01:00Z",
+  "payload": {
+    "online": false,
+    "state": "IDLE"
+  }
+}
+```
+
+`metric` is only used for `kind=telemetry` and represents the telemetry channel name (`battery`, `location`, `docking`, `imu`, etc.).
+
+### WebSocket Endpoint
+- `GET /ws/telemetry`
+
+### Auth (JWT)
+WS clients must send header:
+```
+Authorization: Bearer <JWT>
+```
+Or disable auth with `WS_AUTH_DISABLED=1` (not recommended for production).
+
+### Login (JWT issuer, static account)
+- `POST /auth/login`
+```json
+{
+  "username": "admin",
+  "password": "admin123"
+}
+```
+
+Response:
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### Subscribe from Frontend (WS)
+After connecting, the client sends:
+```json
+{
+  "type": "subscribe",
+  "drones": ["DRN-001", "DRN-002"]
+}
+```
+The backend will only push data for drones in this list.
+
+### End-to-End Example
+
+**1) Send telemetry via HTTP**
+```bash
+curl -X POST http://127.0.0.1:8080/realtime/telemetry \
+  -H "Content-Type: application/json" \
+  -d '{
+    "drone_id":"DRN-001",
+    "kind":"telemetry",
+    "metric":"docking",
+    "payload":{"online":false}
+  }'
+```
+
+**2) WS Subscribe**
+```json
+{"type":"subscribe","drones":["DRN-001"]}
+```
+
+**3) WS Receive**
+```json
+{
+  "drone_id": "DRN-001",
+  "kind": "telemetry",
+  "metric": "docking",
+  "ts": "2026-02-04T06:25:48.885371Z",
+  "payload": {
+    "online": true
+  }
+}
+```
+
+### Troubleshooting
+- **No WS data**: ensure the client sent the subscribe message.
+- **No realtime data**: ensure `POST /realtime/telemetry` payload is valid JSON and includes required fields.
+- **401 WS**: missing/invalid JWT, or set `WS_AUTH_DISABLED=1` to bypass.
+
+### Environment Variables
+```
+JWT_SECRET=change-me
+AUTH_USERNAME=admin
+AUTH_PASSWORD=admin123
+WS_AUTH_DISABLED=1
+```
+
+### Notes
+- Realtime frontend channel is only WebSocket `/ws/telemetry`.
+- Token JWT currently has no expiry (non-expiring).
+- `WS_AUTH_DISABLED=1` disables WS auth (not recommended for production).
+
 ## ⚙️ Run
 
 

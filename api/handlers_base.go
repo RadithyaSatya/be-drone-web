@@ -6,13 +6,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"xflight-backend/internal/ws"
 )
 
 const footageUploadDir = "./uploads/footages"
 
 type Handlers struct {
-	DB         *sql.DB
-	DockingHub *DockingHub
+	DB          *sql.DB
+	RealtimeHub *ws.Hub
 }
 
 func init() {
@@ -22,9 +24,7 @@ func init() {
 }
 
 func NewHandlers(db *sql.DB) *Handlers {
-	hub := NewDockingHub()
-	go hub.Run()
-	return &Handlers{DB: db, DockingHub: hub}
+	return &Handlers{DB: db}
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {

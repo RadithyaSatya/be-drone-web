@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"xflight-backend/api"
+	"xflight-backend/internal/ws"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -33,36 +34,64 @@ func main() {
 	log.Println("Successfully connected to PostgreSQL database!")
 
 	h := api.NewHandlers(db)
-	router := setupRouter(h)
+	wsHub := ws.NewHub()
+	go wsHub.Run()
+	h.RealtimeHub = wsHub
+
+	var wsAuth ws.Authenticator
+	if getEnv("WS_AUTH_DISABLED", "") == "" {
+		wsAuth = ws.NewJWTAuthenticatorFromEnv()
+	}
+	wsHandler := ws.NewHandler(wsHub, wsAuth)
+
+	router := setupRouter(h, wsHandler)
 
 	log.Printf("Server starting on port %s...", cfg.addr)
 	log.Fatal(http.ListenAndServe(cfg.addr, corsMiddleware(router)))
 }
 
-func setupRouter(h *api.Handlers) *mux.Router {
+func setupRouter(h *api.Handlers, wsHandler http.Handler) *mux.Router {
 	router := mux.NewRouter()
 
+	// Mission management and mission telemetry history
+	registerMissionRoutes(router, h)
+	// Location and media assets
+	registerAssetRoutes(router, h)
+	// Realtime ingestion and websocket delivery
+	registerRealtimeRoutes(router, h, wsHandler)
+	// Authentication endpoints
+	registerAuthRoutes(router, h)
+
+	return router
+}
+
+func registerMissionRoutes(router *mux.Router, h *api.Handlers) {
 	router.HandleFunc("/missions", h.GetAllMissions).Methods("GET")
 	router.HandleFunc("/missions/{id}", h.GetMissionByID).Methods("GET")
 	router.HandleFunc("/missions/{id}/complete", h.CompleteMission).Methods("POST")
 	router.HandleFunc("/missions/recurring", h.GetRecurringMissions).Methods("GET")
 	router.HandleFunc("/missions/last/{user_id}", h.GetLastMission).Methods("GET")
 	router.HandleFunc("/missions/scheduled", h.GetScheduledMissions).Methods("GET")
-	// router.HandleFunc("/missions/user/{user_id}", h.GetMissionsByUserAndUAV).Methods("GET")
 	router.HandleFunc("/missions/user/{user_id}", h.GetMissionsByUser).Methods("GET")
-
 	router.HandleFunc("/register-mission", h.SaveNewMission).Methods("POST")
+	router.HandleFunc("/telemetry", h.SubmitBatchMissionLogs).Methods("POST")
+	router.HandleFunc("/get-telemetry/{mission_id}", h.GetMissionTelemetry).Methods("GET")
+}
+
+func registerAssetRoutes(router *mux.Router, h *api.Handlers) {
 	router.HandleFunc("/get-location/{type}/{id}", h.GetLatestLocation).Methods("GET")
 	router.HandleFunc("/upload-footage", h.UploadFootage).Methods("POST")
 	router.PathPrefix("/footages/").Handler(
 		http.StripPrefix("/footages/", http.FileServer(http.Dir("./uploads/footages"))))
-	router.HandleFunc("/telemetry", h.SubmitBatchMissionLogs).Methods("POST")
-	router.HandleFunc("/get-telemetry/{mission_id}", h.GetMissionTelemetry).Methods("GET")
-	router.HandleFunc("/docking/heartbeat", h.DockingHeartbeat).Methods("POST")
-	router.HandleFunc("/ws/docking", h.DockingStatusWS)
-	// router.HandleFunc("/api/missions/{mission_id}/telemetry", h.GetMissionTelemetry).Methods("GET")
+}
 
-	return router
+func registerRealtimeRoutes(router *mux.Router, h *api.Handlers, wsHandler http.Handler) {
+	router.HandleFunc("/realtime/telemetry", h.SubmitRealtimeTelemetry).Methods("POST")
+	router.Handle("/ws/telemetry", wsHandler).Methods("GET")
+}
+
+func registerAuthRoutes(router *mux.Router, h *api.Handlers) {
+	router.HandleFunc("/auth/login", h.Login).Methods("POST")
 }
 
 type config struct {
