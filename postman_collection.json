@@ -1,221 +1,825 @@
 {
-  "info": {
-    "name": "XFlight Backend",
-    "description": "Postman collection for XFlight backend endpoints.",
-    "_postman_id": "7c0cb8c2-9fb1-4d15-98a5-4e4f1c6d2a5b",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "Get All Missions",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/missions",
-          "host": ["{{baseUrl}}"],
-          "path": ["missions"]
-        }
-      }
+    "info": {
+        "name": "XFlight Backend",
+        "description": "Postman collection for XFlight backend endpoints.",
+        "_postman_id": "7c0cb8c2-9fb1-4d15-98a5-4e4f1c6d2a5b",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
-    {
-      "name": "Get Mission By ID",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/missions/1",
-          "host": ["{{baseUrl}}"],
-          "path": ["missions", "1"]
-        }
-      }
-    },
-    {
-      "name": "Complete Mission",
-      "request": {
-        "method": "POST",
-        "url": {
-          "raw": "{{baseUrl}}/missions/1/complete",
-          "host": ["{{baseUrl}}"],
-          "path": ["missions", "1", "complete"]
-        }
-      }
-    },
-    {
-      "name": "Get Recurring Missions",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/missions/recurring",
-          "host": ["{{baseUrl}}"],
-          "path": ["missions", "recurring"]
-        }
-      }
-    },
-    {
-      "name": "Get Last Mission",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/missions/last/1",
-          "host": ["{{baseUrl}}"],
-          "path": ["missions", "last", "1"]
-        }
-      }
-    },
-    {
-      "name": "Get Scheduled Missions",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/missions/scheduled",
-          "host": ["{{baseUrl}}"],
-          "path": ["missions", "scheduled"]
-        }
-      }
-    },
-    {
-      "name": "Get Missions By User",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/missions/user/1",
-          "host": ["{{baseUrl}}"],
-          "path": ["missions", "user", "1"]
-        }
-      }
-    },
-    {
-      "name": "Register Mission",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"user_id\": 1,\n  \"uav_id\": 1,\n  \"mission_name\": \"Test Mission\",\n  \"schedule\": \"2025-01-01T00:00:00Z\",\n  \"is_recurring\": false,\n  \"status\": \"Scheduled\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 10.0,\n      \"action\": \"hold\",\n      \"action_duration\": 5\n    }\n  ]\n}"
+    "item": [
+        {
+            "name": "Auth",
+            "description": "Login to obtain JWT and generate short-lived WS tokens.",
+            "item": [
+                {
+                    "name": "Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"username\": \"user1\",\n  \"password\": \"secret123\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/login",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "login"
+                            ]
+                        },
+                        "description": "Returns JWT token. Username can be username or email."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const data = pm.response.json();",
+                                    "if (data && data.token) {",
+                                    "  pm.collectionVariables.set('authToken', data.token);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Generate WS Token",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/ws-token",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "ws-token"
+                            ]
+                        },
+                        "description": "Returns short-lived WS token. Use either Authorization or X-Device-Token."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const data = pm.response.json();",
+                                    "if (data && data.token) {",
+                                    "  pm.collectionVariables.set('wsToken', data.token);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
         },
-        "url": {
-          "raw": "{{baseUrl}}/register-mission",
-          "host": ["{{baseUrl}}"],
-          "path": ["register-mission"]
-        }
-      }
-    },
-    {
-      "name": "Get Latest Location",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/get-location/1/1",
-          "host": ["{{baseUrl}}"],
-          "path": ["get-location", "1", "1"]
-        }
-      }
-    },
-    {
-      "name": "Upload Footage",
-      "request": {
-        "method": "POST",
-        "body": {
-          "mode": "formdata",
-          "formdata": [
-            {
-              "key": "uav_id",
-              "value": "1",
-              "type": "text"
-            },
-            {
-              "key": "file",
-              "type": "file",
-              "src": ""
-            }
-          ]
+        {
+            "name": "Users",
+            "description": "User management endpoints (requires auth).",
+            "item": [
+                {
+                    "name": "Register User",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"user@example.com\",\n  \"dob\": \"1990-01-01\",\n  \"phone\": \"+628123456789\",\n  \"username\": \"user1\",\n  \"pilot_cert\": \"CERT-001\",\n  \"password\": \"secret123\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/register-user",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "register-user"
+                            ]
+                        },
+                        "description": "Create new user. Requires auth (JWT or device token)."
+                    }
+                },
+                {
+                    "name": "Get Users (Paginated)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/users?page={{page}}&limit={{limit}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "users"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "{{page}}"
+                                },
+                                {
+                                    "key": "limit",
+                                    "value": "{{limit}}"
+                                }
+                            ]
+                        },
+                        "description": "List users with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
+                    }
+                }
+            ]
         },
-        "url": {
-          "raw": "{{baseUrl}}/upload-footage",
-          "host": ["{{baseUrl}}"],
-          "path": ["upload-footage"]
-        }
-      }
-    },
-    {
-      "name": "Submit Telemetry Batch",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"logs\": [\n    {\n      \"mission_id\": 1,\n      \"uav_id\": 1,\n      \"waypoints\": \"1\",\n      \"altitude\": 100,\n      \"coordinate\": \"-6.2,106.8\",\n      \"batt\": 80,\n      \"time_in_air\": \"2025-01-01T00:00:00Z\"\n    }\n  ]\n}"
+        {
+            "name": "Missions",
+            "description": "Mission CRUD and queries.",
+            "item": [
+                {
+                    "name": "Get All Missions",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Get Missions (Current User)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/me?uav_id={{uavId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "me"
+                            ],
+                            "query": [
+                                {
+                                    "key": "uav_id",
+                                    "value": "{{uavId}}",
+                                    "disabled": true
+                                }
+                            ]
+                        }
+                    },
+                    "description": "Returns missions for the authenticated user. Optional uav_id filter."
+                },
+                {
+                    "name": "Get Mission By ID",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/{{missionId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "{{missionId}}"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Register Mission",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"mission_name\": \"Test Mission\",\n  \"schedule\": \"2025-01-01T00:00:00Z\",\n  \"is_recurring\": false,\n  \"status\": \"Scheduled\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 10.0,\n      \"action\": \"hold\",\n      \"action_duration\": 5\n    }\n  ]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/register-mission",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "register-mission"
+                            ]
+                        },
+                        "description": "Creates mission for the authenticated user. user_id is inferred from JWT."
+                    }
+                },
+                {
+                    "name": "Get Missions By User (Optional UAV)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/user/{{userId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "user",
+                                "{{userId}}"
+                            ],
+                            "query": [
+                                {
+                                    "key": "uav_id",
+                                    "value": "{{uavId}}",
+                                    "disabled": true
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Get Next Mission (By User)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/next/{{userId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "next",
+                                "{{userId}}"
+                            ]
+                        }
+                    },
+                    "description": "Returns the nearest upcoming mission with status Waiting for the user (schedule >= now), including waypoints."
+                },
+                {
+                    "name": "Start Mission",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/{{missionId}}/start",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "{{missionId}}",
+                                "start"
+                            ]
+                        },
+                        "description": "Starts a mission run and returns history_id."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const data = pm.response.json();",
+                                    "if (data && data.history_id) {",
+                                    "  pm.collectionVariables.set('historyId', data.history_id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
         },
-        "url": {
-          "raw": "{{baseUrl}}/telemetry",
-          "host": ["{{baseUrl}}"],
-          "path": ["telemetry"]
-        }
-      }
-    },
-    {
-      "name": "Get Mission Telemetry",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/get-telemetry/1",
-          "host": ["{{baseUrl}}"],
-          "path": ["get-telemetry", "1"]
-        }
-      }
-    },
-    {
-      "name": "Docking Heartbeat",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"docking_id\": \"dock-1\",\n  \"online\": true\n}"
+        {
+            "name": "Mission History",
+            "description": "Mission run lifecycle and history listings.",
+            "item": [
+                {
+                    "name": "Get Mission History (By Mission)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/{{missionId}}/history",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "{{missionId}}",
+                                "history"
+                            ]
+                        },
+                        "description": "Returns mission details plus completion history for the authenticated user. Each history entry includes a media array with uploaded images/videos (from mission_history_media)."
+                    }
+                },
+                {
+                    "name": "Get All Mission History (Paginated)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-history?page={{page}}&limit={{limit}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-history"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "{{page}}"
+                                },
+                                {
+                                    "key": "limit",
+                                    "value": "{{limit}}"
+                                }
+                            ]
+                        },
+                        "description": "List mission history entries for the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
+                    }
+                },
+                {
+                    "name": "Complete Mission (By History ID)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/complete",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-history",
+                                "{{historyId}}",
+                                "complete"
+                            ]
+                        },
+                        "description": "Completes a mission run using history_id from /missions/{id}/start."
+                    }
+                }
+            ]
         },
-        "url": {
-          "raw": "{{baseUrl}}/docking/heartbeat",
-          "host": ["{{baseUrl}}"],
-          "path": ["docking", "heartbeat"]
+        {
+            "name": "Telemetry",
+            "description": "Mission telemetry batch storage and retrieval.",
+            "item": [
+                {
+                    "name": "Submit Telemetry Batch",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"logs\": [\n    {\n      \"mission_id\": {{missionId}},\n      \"uav_id\": {{uavId}},\n      \"waypoints\": 1,\n      \"altitude\": 100,\n      \"coordinate\": \"-6.2,106.8\",\n      \"battery\": 80,\n      \"timestamp\": \"2025-01-01T00:00:00Z\"\n    }\n  ]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/telemetry",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "telemetry"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Get Mission Telemetry",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/get-telemetry/{{missionId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "get-telemetry",
+                                "{{missionId}}"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Realtime",
+            "description": "Realtime telemetry ingestion and WS connection.",
+            "item": [
+                {
+                    "name": "Submit Realtime Telemetry",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"drone_id\": \"DRN-001\",\n  \"kind\": \"telemetry\",\n  \"metric\": \"battery\",\n  \"payload\": {\n    \"percent\": 78.2,\n    \"voltage\": 15.6\n  }\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/realtime/telemetry",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "realtime",
+                                "telemetry"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "WebSocket Telemetry",
+                    "request": {
+                        "method": "GET",
+                        "url": {
+                            "raw": "{{wsBaseUrl}}/ws/telemetry?token={{wsToken}}",
+                            "host": [
+                                "{{wsBaseUrl}}"
+                            ],
+                            "path": [
+                                "ws",
+                                "telemetry"
+                            ],
+                            "query": [
+                                {
+                                    "key": "token",
+                                    "value": "{{wsToken}}"
+                                }
+                            ]
+                        },
+                        "description": "Connect with ws:// and a valid wsToken from /auth/ws-token."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Assets",
+            "description": "Locations and media uploads.",
+            "item": [
+                {
+                    "name": "Get Latest Location",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/get-location/{{locationType}}/{{locationId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "get-location",
+                                "{{locationType}}",
+                                "{{locationId}}"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Upload Media (Image/Video)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "uav_id",
+                                    "value": "{{uavId}}",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "mission_id",
+                                    "value": "{{missionId}}",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "history_id",
+                                    "value": "{{historyId}}",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": ""
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/upload-footage",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "upload-footage"
+                            ]
+                        },
+                        "description": "Upload image or video. If mission_id is provided, history_id must also be provided and the media will be attached to that mission_history entry."
+                    }
+                },
+                {
+                    "name": "Get Footage File",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/footages/{{footageFile}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "footages",
+                                "{{footageFile}}"
+                            ]
+                        }
+                    },
+                    "description": "Fetch uploaded media by filename. Requires auth. Example: use file_path from upload response (strip leading ./uploads/footages/)."
+                }
+            ]
         }
-      }
-    },
-    {
-      "name": "Docking WS",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/ws/docking?docking_id=dock-1",
-          "host": ["{{baseUrl}}"],
-          "path": ["ws", "docking"],
-          "query": [
-            {
-              "key": "docking_id",
-              "value": "dock-1"
-            }
-          ]
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://127.0.0.1:8080"
+        },
+        {
+            "key": "wsBaseUrl",
+            "value": "ws://127.0.0.1:8080"
+        },
+        {
+            "key": "authToken",
+            "value": ""
+        },
+        {
+            "key": "deviceToken",
+            "value": ""
+        },
+        {
+            "key": "wsToken",
+            "value": ""
+        },
+        {
+            "key": "historyId",
+            "value": ""
+        },
+        {
+            "key": "missionId",
+            "value": "1"
+        },
+        {
+            "key": "userId",
+            "value": "1"
+        },
+        {
+            "key": "uavId",
+            "value": "1"
+        },
+        {
+            "key": "locationType",
+            "value": "1"
+        },
+        {
+            "key": "locationId",
+            "value": "1"
+        },
+        {
+            "key": "page",
+            "value": "1"
+        },
+        {
+            "key": "limit",
+            "value": "20"
+        },
+        {
+            "key": "footageFile",
+            "value": "example.mp4"
         }
-      }
-    }
-  ],
-  "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://127.0.0.1:8080"
-    }
-  ]
+    ]
 }

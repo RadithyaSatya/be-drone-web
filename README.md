@@ -95,14 +95,20 @@ For status:
 ### WebSocket Endpoint
 - `GET /ws/telemetry`
 
-### Auth (JWT)
-WS clients must send header:
+### Auth (JWT or Device Token)
+All API endpoints (except `/auth/login`) accept either:
 ```
 Authorization: Bearer <JWT>
 ```
-Or disable auth with `WS_AUTH_DISABLED=1` (not recommended for production).
+or
+```
+X-Device-Token: <DEVICE_TOKEN>
+```
 
-### Login (JWT issuer, static account)
+WS clients must authenticate with:
+- `?token=<WS_TOKEN>` query param where `WS_TOKEN` is issued by `POST /auth/ws-token`
+
+### Login (JWT issuer, users table)
 - `POST /auth/login`
 ```json
 {
@@ -115,6 +121,62 @@ Response:
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+Notes:
+- Credentials are validated against the `users` table.
+- Passwords are stored as bcrypt hashes by default.
+
+### Add User (JWT or Device Token)
+- `POST /register-user`
+```
+Authorization: Bearer <JWT>
+```
+or
+```
+X-Device-Token: <DEVICE_TOKEN>
+```
+```json
+{
+  "email": "user@example.com",
+  "dob": "1990-01-01",
+  "phone": "+628123456789",
+  "username": "user1",
+  "pilot_cert": "CERT-001",
+  "password": "secret123"
+}
+```
+Notes:
+- `password` or `password_hash` is required.
+- `dob` must be `YYYY-MM-DD` when provided.
+- `password` will be hashed with bcrypt.
+- `password_hash` must be bcrypt (preferred) or legacy `sha256:<salt>:<hash>`.
+
+### Realtime Telemetry (JWT or Device Token)
+- `POST /realtime/telemetry`
+```
+X-Device-Token: <DEVICE_TOKEN>
+```
+or
+```
+Authorization: Bearer <JWT>
+```
+
+### WS Token (short-lived)
+- `POST /auth/ws-token`
+```
+Authorization: Bearer <JWT>
+```
+or
+```
+X-Device-Token: <DEVICE_TOKEN>
+```
+
+Response:
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expires_in": 120
 }
 ```
 
@@ -134,6 +196,7 @@ The backend will only push data for drones in this list.
 ```bash
 curl -X POST http://127.0.0.1:8080/realtime/telemetry \
   -H "Content-Type: application/json" \
+  -H "X-Device-Token: <DEVICE_TOKEN>" \
   -d '{
     "drone_id":"DRN-001",
     "kind":"telemetry",
@@ -160,23 +223,68 @@ curl -X POST http://127.0.0.1:8080/realtime/telemetry \
 }
 ```
 
+### Mission History
+- `POST /missions/{id}/start` will insert a record into `mission_history` with status `InProgress`.
+- `POST /mission-history/{history_id}/complete` will update that history row to `Completed`.
+- `GET /missions/{id}/history` returns the mission details + its run history.
+- `GET /mission-history` returns all history entries (paginated).
+
+Start Response:
+```json
+{
+  "history_id": 123,
+  "status": "InProgress"
+}
+```
+
+Complete Request:
+`POST /mission-history/123/complete`
+
+Typical flow:
+1. Call `POST /missions/{id}/start` → store `history_id`.
+2. Fly mission + upload media (use `history_id` + `mission_id`).
+3. Call `POST /mission-history/{history_id}/complete`.
+
+List all history (paginated):
+```
+GET /mission-history?page=1&limit=20
+```
+Notes:
+- Default `page=1`, `limit=20`
+- Max `limit=100`
+
+Fields:
+- `started_at`: time when `start` was called.
+- `completed_at`: time when `complete` was called (null while `InProgress`).
+- `media`: list of uploaded media (image/video) for each history entry.
+
+### Upload Media (image/video, optional mission_id)
+- `POST /upload-footage` (multipart form)
+Fields:
+- `uav_id` (required)
+- `mission_id` (optional, link media to mission history)
+- `history_id` (required if `mission_id` is provided)
+- `file` (required)
+Notes:
+- Accepted image types: `.jpg`, `.jpeg`, `.png`, `.webp`.
+- Accepted video types: `.mp4`, `.m4`, `.m4v`.
+- Each upload is also appended to `mission_history_media`.
+
 ### Troubleshooting
 - **No WS data**: ensure the client sent the subscribe message.
 - **No realtime data**: ensure `POST /realtime/telemetry` payload is valid JSON and includes required fields.
-- **401 WS**: missing/invalid JWT, or set `WS_AUTH_DISABLED=1` to bypass.
+- **401 WS**: missing/invalid WS token.
+- **401 Realtime**: missing/invalid auth (`Authorization` or `X-Device-Token`).
 
 ### Environment Variables
 ```
 JWT_SECRET=change-me
-AUTH_USERNAME=admin
-AUTH_PASSWORD=admin123
-WS_AUTH_DISABLED=1
+DEVICE_TOKEN=change-me
 ```
 
 ### Notes
 - Realtime frontend channel is only WebSocket `/ws/telemetry`.
 - Token JWT currently has no expiry (non-expiring).
-- `WS_AUTH_DISABLED=1` disables WS auth (not recommended for production).
 
 ## ⚙️ Run
 

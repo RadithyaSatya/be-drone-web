@@ -59,10 +59,35 @@ INSERT INTO locations  (
 CREATE TABLE footages (
     id SERIAL PRIMARY KEY,
     uav_id INTEGER NOT NULL,
+    mission_id INTEGER REFERENCES missions(id) ON DELETE SET NULL,
     filename VARCHAR(255) NOT NULL,
     file_path VARCHAR(512) NOT NULL,
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE mission_history (
+    id SERIAL PRIMARY KEY,
+    mission_id INT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+    user_id INT,
+    uav_id INT,
+    status VARCHAR(50) NOT NULL,
+    failure_reason TEXT,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE mission_history_media (
+    id SERIAL PRIMARY KEY,
+    history_id INT NOT NULL REFERENCES mission_history(id) ON DELETE CASCADE,
+    mission_id INT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+    media_type VARCHAR(20) NOT NULL,
+    file_path VARCHAR(512) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX mission_history_media_mission_id_idx ON mission_history_media (mission_id);
+CREATE INDEX mission_history_media_history_id_idx ON mission_history_media (history_id);
 
 
 CREATE TABLE mission_log (

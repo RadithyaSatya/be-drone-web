@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-	"xflight-backend/models"
+	"xflight-backend/internal/models"
 
 	"github.com/gorilla/mux"
 )

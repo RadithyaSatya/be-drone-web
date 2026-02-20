@@ -1,9 +1,11 @@
-package api
+package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -24,9 +26,31 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
-	user := getEnvOrDefault("AUTH_USERNAME", "admin")
-	pass := getEnvOrDefault("AUTH_PASSWORD", "admin123")
-	if req.Username != user || req.Password != pass {
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || strings.TrimSpace(req.Password) == "" {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
+		return
+	}
+
+	var storedHash string
+	var username string
+	query := `SELECT username, password_hash FROM users WHERE username = $1 OR email = $1 LIMIT 1`
+	err := h.DB.QueryRow(query, req.Username).Scan(&username, &storedHash)
+	if err == sql.ErrNoRows {
+		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		return
+	}
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to load user"})
+		return
+	}
+
+	ok, err := verifyPassword(req.Password, storedHash)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid password hash"})
+		return
+	}
+	if !ok {
 		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
@@ -38,9 +62,9 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := jwt.RegisteredClaims{
-		Subject:   req.Username,
-		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-		Issuer:    "xflight-backend",
+		Subject:  username,
+		IssuedAt: jwt.NewNumericDate(time.Now().UTC()),
+		Issuer:   "xflight-backend",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))

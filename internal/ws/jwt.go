@@ -2,11 +2,10 @@ package ws
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
-	"strings"
-	"time"
+
+	"xflight-backend/internal/auth"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -24,26 +23,27 @@ func (a *JWTAuthenticator) Authenticate(r *http.Request) error {
 	if len(a.secret) == 0 {
 		return errors.New("missing JWT secret")
 	}
-	authorization := r.Header.Get("Authorization")
-	if authorization == "" {
-		return errors.New("missing authorization header")
-	}
-	parts := strings.SplitN(authorization, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return errors.New("invalid authorization header")
-	}
-	tokenString := parts[1]
 
-	claims := jwt.RegisteredClaims{}
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
-	token, err := parser.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
-		return a.secret, nil
-	})
-	if err != nil || !token.Valid {
-		return fmt.Errorf("invalid token: %w", err)
+	tokenString := r.URL.Query().Get("token")
+	if tokenString == "" {
+		return errors.New("missing ws token")
 	}
-	if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
-		return errors.New("token expired")
+
+	claims := &jwt.RegisteredClaims{}
+	if err := auth.ParseAndValidateJWT(a.secret, tokenString, claims); err != nil {
+		return err
+	}
+	if !audienceContains(claims.Audience, "ws") {
+		return errors.New("invalid token audience")
 	}
 	return nil
+}
+
+func audienceContains(audience []string, value string) bool {
+	for _, aud := range audience {
+		if aud == value {
+			return true
+		}
+	}
+	return false
 }
