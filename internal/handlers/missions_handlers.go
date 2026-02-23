@@ -510,17 +510,29 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, uavID); err != nil {
+		log.Printf("Failed to acquire UAV lock: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
+		return
+	}
+
 	var existingID int
+	var existingMissionID int
 	err = tx.QueryRow(`
-        SELECT id
+        SELECT id, mission_id
         FROM mission_history
-        WHERE mission_id = $1 AND status = 'InProgress'
+        WHERE status = 'InProgress' AND (mission_id = $1 OR uav_id = $2)
         ORDER BY created_at DESC
-        LIMIT 1`, missionID).Scan(&existingID)
+        LIMIT 1`, missionID, uavID).Scan(&existingID, &existingMissionID)
 	if err == nil {
+		message := "Mission already in progress"
+		if existingMissionID != missionID {
+			message = "UAV already has a mission in progress"
+		}
 		respondWithJSON(w, http.StatusConflict, map[string]interface{}{
-			"message":    "Mission already in progress",
+			"message":    message,
 			"history_id": existingID,
+			"mission_id": existingMissionID,
 		})
 		return
 	}
