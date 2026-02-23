@@ -64,6 +64,7 @@ func registerRealtimeWebsocketRoutes(router *mux.Router, wsHandler http.Handler)
 
 func registerAuthRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/auth/login", h.Login).Methods("POST")
+	router.HandleFunc("/bootstrap/default-user", h.CreateDefaultUser).Methods("POST")
 }
 
 func registerUserRoutes(router *mux.Router, h *handlers.Handlers) {

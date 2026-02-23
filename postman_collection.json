@@ -92,6 +92,33 @@
                             }
                         }
                     ]
+                },
+                {
+                    "name": "Bootstrap Default User",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"key\": \"change-me\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/bootstrap/default-user",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "bootstrap",
+                                "default-user"
+                            ]
+                        },
+                        "description": "Create default user using static key. Returns 409 if already exists."
+                    }
                 }
             ]
         },
