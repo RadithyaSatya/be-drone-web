@@ -140,13 +140,13 @@ func (h *Handlers) CreateDefaultUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != sql.ErrNoRows {
 		log.Printf("Failed to check default user: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
+		respondWithErrorDetail(w, http.StatusInternalServerError, "Failed to create user", err)
 		return
 	}
 
 	hashed, err := hashPassword(defaultBootstrapPassword)
 	if err != nil {
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+		respondWithErrorDetail(w, http.StatusInternalServerError, "failed to hash password", err)
 		return
 	}
 
@@ -171,7 +171,7 @@ func (h *Handlers) CreateDefaultUser(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
+		respondWithErrorDetail(w, http.StatusInternalServerError, "Failed to create user", err)
 		return
 	}
 
