@@ -272,6 +272,20 @@ func parseSchedule(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func formatScheduleLike(raw string, t time.Time) string {
+	value := strings.TrimSpace(raw)
+	switch {
+	case strings.Contains(value, "T"):
+		return t.Format(time.RFC3339)
+	case len(value) == len("2006-01-02 15:04"):
+		return t.Format("2006-01-02 15:04")
+	case len(value) == len("2006-01-02"):
+		return t.Format("2006-01-02")
+	default:
+		return t.Format("2006-01-02 15:04:05")
+	}
+}
+
 func (h *Handlers) GetMissionsByUserAndUAV(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID, err := strconv.Atoi(vars["user_id"])
@@ -612,7 +626,8 @@ func (h *Handlers) CompleteMissionByHistoryID(w http.ResponseWriter, r *http.Req
 	}
 
 	var isRecurring bool
-	err = tx.QueryRow(`SELECT is_recurring FROM missions WHERE id = $1`, missionID).Scan(&isRecurring)
+	var scheduleRaw string
+	err = tx.QueryRow(`SELECT is_recurring, schedule FROM missions WHERE id = $1`, missionID).Scan(&isRecurring, &scheduleRaw)
 	if err == sql.ErrNoRows {
 		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Mission not found"})
 		return
@@ -624,14 +639,31 @@ func (h *Handlers) CompleteMissionByHistoryID(w http.ResponseWriter, r *http.Req
 	}
 
 	newStatus := "Completed"
+	var nextSchedule string
 	if isRecurring {
 		newStatus = "Waiting"
+		if scheduleTime, ok := parseSchedule(scheduleRaw); ok {
+			nextTime := scheduleTime.Add(24 * time.Hour)
+			now := time.Now().In(scheduleTime.Location())
+			for nextTime.Before(now) {
+				nextTime = nextTime.Add(24 * time.Hour)
+			}
+			nextSchedule = formatScheduleLike(scheduleRaw, nextTime)
+		}
 	}
 
-	if _, err := tx.Exec(`UPDATE missions SET status = $1 WHERE id = $2`, newStatus, missionID); err != nil {
-		log.Printf("Failed to update mission status: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission status"})
-		return
+	if nextSchedule != "" {
+		if _, err := tx.Exec(`UPDATE missions SET status = $1, schedule = $2 WHERE id = $3`, newStatus, nextSchedule, missionID); err != nil {
+			log.Printf("Failed to update mission status/schedule: %v", err)
+			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission status"})
+			return
+		}
+	} else {
+		if _, err := tx.Exec(`UPDATE missions SET status = $1 WHERE id = $2`, newStatus, missionID); err != nil {
+			log.Printf("Failed to update mission status: %v", err)
+			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission status"})
+			return
+		}
 	}
 
 	completedAt := time.Now().UTC()
