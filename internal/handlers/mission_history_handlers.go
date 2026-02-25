@@ -36,7 +36,7 @@ func (h *Handlers) GetMissionHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(`
-        SELECT id, mission_id, user_id, uav_id, status, started_at, completed_at, created_at
+        SELECT id, mission_id, user_id, uav_id, status, failure_reason, started_at, completed_at, created_at, mission_snapshot
         FROM mission_history
         WHERE mission_id = $1 AND user_id = $2
         ORDER BY completed_at DESC NULLS LAST, created_at DESC`, missionID, userID)
@@ -53,6 +53,7 @@ func (h *Handlers) GetMissionHistory(w http.ResponseWriter, r *http.Request) {
 		var entry models.MissionHistoryEntry
 		var startedAt sql.NullTime
 		var completedAt sql.NullTime
+		var failureReason sql.NullString
 
 		if err := rows.Scan(
 			&entry.ID,
@@ -60,9 +61,11 @@ func (h *Handlers) GetMissionHistory(w http.ResponseWriter, r *http.Request) {
 			&entry.UserID,
 			&entry.UavID,
 			&entry.Status,
+			&failureReason,
 			&startedAt,
 			&completedAt,
 			&entry.CreatedAt,
+			&entry.MissionSnapshot,
 		); err != nil {
 			log.Printf("Error scanning mission history: %v", err)
 			continue
@@ -73,6 +76,9 @@ func (h *Handlers) GetMissionHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		if completedAt.Valid {
 			entry.CompletedAt = &completedAt.Time
+		}
+		if failureReason.Valid {
+			entry.FailureReason = &failureReason.String
 		}
 
 		history = append(history, entry)

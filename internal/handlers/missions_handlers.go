@@ -26,6 +26,16 @@ func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.UserID = userID
+	scheduleTime, ok := parseSchedule(req.Schedule)
+	if !ok {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid schedule format"})
+		return
+	}
+	now := time.Now().In(scheduleTime.Location())
+	if !scheduleTime.After(now) {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Schedule must be in the future"})
+		return
+	}
 
 	tx, err := h.DB.Begin()
 	if err != nil {
@@ -84,7 +94,7 @@ func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetAllMissions(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(`SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp FROM missions ORDER BY timestamp DESC`)
+	rows, err := h.DB.Query(`SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp FROM missions WHERE deleted_at IS NULL ORDER BY timestamp DESC`)
 	if err != nil {
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -114,7 +124,7 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 	query := `
         SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp
         FROM missions
-        WHERE user_id = $1`
+        WHERE user_id = $1 AND deleted_at IS NULL`
 	args := []interface{}{userID}
 
 	if uavIDStr != "" {
@@ -160,7 +170,7 @@ func (h *Handlers) GetLastMission(w http.ResponseWriter, r *http.Request) {
 	query := `
         SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp
         FROM missions
-        WHERE user_id = $1 AND status = $2`
+        WHERE user_id = $1 AND status = $2 AND deleted_at IS NULL`
 
 	rows, err := h.DB.Query(query, userID, "Waiting")
 	if err != nil {
@@ -297,7 +307,7 @@ func (h *Handlers) GetMissionsByUserAndUAV(w http.ResponseWriter, r *http.Reques
 	query := `
         SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp
         FROM missions
-        WHERE user_id = $1`
+        WHERE user_id = $1 AND deleted_at IS NULL`
 
 	args := []interface{}{userID}
 
@@ -346,7 +356,7 @@ func (h *Handlers) GetMissionByID(w http.ResponseWriter, r *http.Request) {
 	missionQuery := `
         SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp
         FROM missions
-        WHERE id = $1`
+        WHERE id = $1 AND deleted_at IS NULL`
 
 	row := h.DB.QueryRow(missionQuery, missionID)
 	err = row.Scan(
@@ -415,7 +425,7 @@ func (h *Handlers) GetMissionsByUser(w http.ResponseWriter, r *http.Request) {
 	missionQuery := `
         SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp
         FROM missions
-        WHERE user_id = $1
+        WHERE user_id = $1 AND deleted_at IS NULL
         ORDER BY timestamp DESC`
 
 	rows, err := h.DB.Query(missionQuery, userID)
@@ -511,9 +521,20 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var userID int
-	var uavID int
-	err = tx.QueryRow(`SELECT user_id, uav_id FROM missions WHERE id = $1`, missionID).Scan(&userID, &uavID)
+	var mission models.Mission
+	err = tx.QueryRow(`
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, timestamp
+        FROM missions
+        WHERE id = $1 AND deleted_at IS NULL`, missionID).Scan(
+		&mission.ID,
+		&mission.UserID,
+		&mission.UavID,
+		&mission.MissionName,
+		&mission.Schedule,
+		&mission.IsRecurring,
+		&mission.Status,
+		&mission.Timestamp,
+	)
 	if err == sql.ErrNoRows {
 		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Mission not found"})
 		return
@@ -524,7 +545,7 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, uavID); err != nil {
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, mission.UavID); err != nil {
 		log.Printf("Failed to acquire UAV lock: %v", err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
 		return
@@ -537,7 +558,7 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
         FROM mission_history
         WHERE status = 'InProgress' AND (mission_id = $1 OR uav_id = $2)
         ORDER BY created_at DESC
-        LIMIT 1`, missionID, uavID).Scan(&existingID, &existingMissionID)
+        LIMIT 1`, missionID, mission.UavID).Scan(&existingID, &existingMissionID)
 	if err == nil {
 		message := "Mission already in progress"
 		if existingMissionID != missionID {
@@ -556,17 +577,60 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	wpRows, err := tx.Query(`
+        SELECT id, sequence_order, latitude, longitude, altitude, action, action_duration
+        FROM waypoints
+        WHERE mission_id = $1
+        ORDER BY sequence_order ASC`, missionID)
+	if err != nil {
+		log.Printf("Failed to load mission waypoints: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
+		return
+	}
+	defer wpRows.Close()
+
+	waypoints := []models.Waypoint{}
+	for wpRows.Next() {
+		var wp models.Waypoint
+		var actionDuration sql.NullInt64
+		if err := wpRows.Scan(
+			&wp.ID,
+			&wp.SequenceOrder,
+			&wp.Latitude,
+			&wp.Longitude,
+			&wp.Altitude,
+			&wp.Action,
+			&actionDuration,
+		); err != nil {
+			log.Printf("Error scanning waypoint: %v", err)
+			continue
+		}
+		if actionDuration.Valid {
+			wp.ActionDuration = &actionDuration.Int64
+		}
+		waypoints = append(waypoints, wp)
+	}
+	mission.Waypoints = waypoints
+
+	missionSnapshot, err := json.Marshal(mission)
+	if err != nil {
+		log.Printf("Failed to build mission snapshot: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
+		return
+	}
+
 	startedAt := time.Now().UTC()
 	var historyID int
 	err = tx.QueryRow(`
-        INSERT INTO mission_history (mission_id, user_id, uav_id, status, started_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO mission_history (mission_id, user_id, uav_id, status, started_at, mission_snapshot)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id`,
 		missionID,
-		userID,
-		uavID,
+		mission.UserID,
+		mission.UavID,
 		"InProgress",
 		startedAt,
+		missionSnapshot,
 	).Scan(&historyID)
 	if err != nil {
 		log.Printf("Failed to insert mission history: %v", err)

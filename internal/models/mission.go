@@ -13,6 +13,7 @@ type Mission struct {
 	IsRecurring bool       `json:"is_recurring" db:"is_recurring"`
 	Status      string     `json:"status" db:"status"`
 	Timestamp   time.Time  `json:"timestamp" db:"timestamp"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
 	Waypoints   []Waypoint `json:"waypoints,omitempty"`
 }
 

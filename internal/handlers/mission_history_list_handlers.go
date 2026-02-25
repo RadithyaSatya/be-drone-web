@@ -32,13 +32,11 @@ func (h *Handlers) ListMissionHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(`
-        SELECT mh.id, mh.mission_id, m.mission_name, mh.user_id, u.username, mh.uav_id, mh.status,
-               mh.failure_reason, mh.started_at, mh.completed_at, mh.created_at
-        FROM mission_history mh
-        JOIN missions m ON m.id = mh.mission_id
-        LEFT JOIN users u ON u.id = mh.user_id
-        WHERE mh.user_id = $1
-        ORDER BY mh.completed_at DESC NULLS LAST, mh.created_at DESC
+        SELECT id, mission_id, user_id, uav_id, status, failure_reason,
+               started_at, completed_at, created_at, mission_snapshot
+        FROM mission_history
+        WHERE user_id = $1
+        ORDER BY completed_at DESC NULLS LAST, created_at DESC
         LIMIT $2 OFFSET $3`, userID, limit, offset)
 	if err != nil {
 		log.Printf("Error querying mission history list: %v", err)
@@ -47,25 +45,23 @@ func (h *Handlers) ListMissionHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	items := []models.MissionHistoryListItem{}
+	items := []models.MissionHistoryEntry{}
 	for rows.Next() {
-		var item models.MissionHistoryListItem
+		var item models.MissionHistoryEntry
 		var startedAt sql.NullTime
 		var completedAt sql.NullTime
-		var userName sql.NullString
 		var failureReason sql.NullString
 		if err := rows.Scan(
 			&item.ID,
 			&item.MissionID,
-			&item.MissionName,
 			&item.UserID,
-			&userName,
 			&item.UavID,
 			&item.Status,
 			&failureReason,
 			&startedAt,
 			&completedAt,
 			&item.CreatedAt,
+			&item.MissionSnapshot,
 		); err != nil {
 			log.Printf("Error scanning mission history list: %v", err)
 			continue
@@ -76,15 +72,8 @@ func (h *Handlers) ListMissionHistory(w http.ResponseWriter, r *http.Request) {
 		if completedAt.Valid {
 			item.CompletedAt = &completedAt.Time
 		}
-		if userName.Valid {
-			item.UserName = &userName.String
-		}
 		if failureReason.Valid {
 			item.FailureReason = &failureReason.String
-		}
-		if startedAt.Valid && completedAt.Valid && !completedAt.Time.Before(startedAt.Time) {
-			durationSec := int64(completedAt.Time.Sub(startedAt.Time).Seconds())
-			item.DurationSec = &durationSec
 		}
 		items = append(items, item)
 	}
