@@ -1,133 +1,206 @@
+BEGIN;
+
+-- =========================================================
+-- 1) USERS
+-- =========================================================
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(100) NOT NULL UNIQUE,
-    dob DATE,                         
-    phone VARCHAR(20),                
     username VARCHAR(100) NOT NULL UNIQUE,
-    pilot_cert VARCHAR(100),
-    password_hash VARCHAR(255) NOT NULL, 
+    password_hash VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- =========================================================
+-- 2) FAILURE_CODE
+-- =========================================================
+CREATE TABLE failure_code (
+    code VARCHAR PRIMARY KEY,
+    description VARCHAR NOT NULL,
+    is_retryable BOOLEAN NOT NULL DEFAULT false,
+    is_critical BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- =========================================================
+-- 3) UAV
+-- =========================================================
+CREATE TABLE uav (
+    id SERIAL PRIMARY KEY,
+    serial_number VARCHAR(255),
+    name VARCHAR(255),
+    model VARCHAR(255),
+    firmware_version VARCHAR(255),
+    camera_spec VARCHAR(255),
+    image_url TEXT,
+    max_range_meter INT,
+    max_flight_time_min INT,
+    owner_id INT REFERENCES users(id) ON DELETE RESTRICT,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by INT
+);
+
+CREATE UNIQUE INDEX uav_serial_number_key
+    ON uav (serial_number)
+    WHERE serial_number IS NOT NULL;
+
+CREATE INDEX uav_owner_id_idx ON uav (owner_id);
+
+-- =========================================================
+-- 4) UAV_STATUS (1:1)
+-- =========================================================
+CREATE TABLE uav_status (
+    uav_id INT PRIMARY KEY REFERENCES uav(id) ON DELETE CASCADE,
+    battery_percent INT,
+    is_connected BOOLEAN,
+    is_in_flight BOOLEAN,
+    is_docked BOOLEAN,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    last_heartbeat TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- =========================================================
+-- 5) DOCKING
+-- =========================================================
+CREATE TABLE docking (
+    id SERIAL PRIMARY KEY,
+    uav_id INT NOT NULL REFERENCES uav(id) ON DELETE CASCADE,
+    name VARCHAR(255),
+    location_name VARCHAR(255),
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    is_primary BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX docking_uav_id_idx ON docking (uav_id);
+
+-- =========================================================
+-- 6) DOCKING_STATUS (1:1)
+-- =========================================================
+CREATE TABLE docking_status (
+    docking_id INT PRIMARY KEY REFERENCES docking(id) ON DELETE CASCADE,
+    door_open BOOLEAN,
+    drone_present BOOLEAN,
+    charging BOOLEAN,
+    temperature DOUBLE PRECISION,
+    is_online BOOLEAN,
+    last_heartbeat TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- =========================================================
+-- 7) MISSIONS
+-- =========================================================
 CREATE TABLE missions (
     id SERIAL PRIMARY KEY,
-    user_id INT NOT NULL REFERENCES users(id),
-    uav_id INT,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    uav_id INT REFERENCES uav(id) ON DELETE RESTRICT,
     mission_name VARCHAR(255) NOT NULL,
-    schedule VARCHAR(255) NOT NULL,
-    is_recurring BOOLEAN NOT NULL DEFAULT FALSE,
+    schedule VARCHAR(255),
+    is_recurring BOOLEAN NOT NULL DEFAULT false,
     status VARCHAR(50) NOT NULL,
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at TIMESTAMPTZ
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by INT
 );
 
-
+-- =========================================================
+-- 8) WAYPOINTS
+-- =========================================================
 CREATE TABLE waypoints (
     id SERIAL PRIMARY KEY,
-    mission_id INT NOT NULL REFERENCES missions(id),
+    mission_id INT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
     sequence_order INT NOT NULL,
-    latitude NUMERIC(10, 8) NOT NULL,
-    longitude NUMERIC(11, 8) NOT NULL,
-    altitude NUMERIC(6, 2) NOT NULL,
-    action VARCHAR(50),
-    action_duration INT,
-    UNIQUE (mission_id, sequence_order) 
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    altitude DOUBLE PRECISION,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (mission_id, sequence_order)
 );
 
-CREATE TABLE locations (
-    id SERIAL PRIMARY KEY,
-    entity_id INT,
-    type INT,
-    latitude NUMERIC(10, 8) NOT NULL,
-    longitude NUMERIC(11, 8) NOT null,
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO locations  (
-    entity_id, 
-    type, 
-    latitude, 
-    longitude
-    
-) VALUES (
-    1, 
-    1, 
-    -6.261001324327185, 
-    106.95949672320901
-    
-);
-
-CREATE TABLE footages (
-    id SERIAL PRIMARY KEY,
-    uav_id INTEGER NOT NULL,
-    mission_id INTEGER REFERENCES missions(id) ON DELETE SET NULL,
-    filename VARCHAR(255) NOT NULL,
-    file_path VARCHAR(512) NOT NULL,
-    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
+-- =========================================================
+-- 9) MISSION_HISTORY
+-- =========================================================
 CREATE TABLE mission_history (
     id SERIAL PRIMARY KEY,
-    mission_id INT NOT NULL REFERENCES missions(id),
-    user_id INT,
-    uav_id INT,
-    status VARCHAR(50) NOT NULL,
-    mission_snapshot JSONB NOT NULL,
+    mission_id INT NOT NULL REFERENCES missions(id) ON DELETE RESTRICT,
+    user_id INT REFERENCES users(id) ON DELETE RESTRICT,
+    uav_id INT REFERENCES uav(id) ON DELETE RESTRICT,
+    docking_id INT REFERENCES docking(id) ON DELETE RESTRICT,
+    current_state VARCHAR(100),
+    final_status VARCHAR(100),
+    failure_code VARCHAR REFERENCES failure_code(code) ON DELETE RESTRICT,
+    retry_count INT,
+    total_duration_ms INT,
+    mission_snapshot JSONB,
     failure_reason TEXT,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE mission_history_media (
-    id SERIAL PRIMARY KEY,
-    history_id INT NOT NULL REFERENCES mission_history(id),
-    mission_id INT NOT NULL REFERENCES missions(id),
+CREATE INDEX mission_history_uav_id_idx ON mission_history (uav_id);
+CREATE INDEX mission_history_docking_id_idx ON mission_history (docking_id);
+CREATE INDEX mission_history_created_at_idx ON mission_history (created_at);
+
+-- =========================================================
+-- 10) MISSION_EVENT
+-- =========================================================
+CREATE TABLE mission_event (
+    id BIGSERIAL PRIMARY KEY,
+    history_id INT NOT NULL REFERENCES mission_history(id) ON DELETE CASCADE,
+    from_state VARCHAR(100),
+    to_state VARCHAR(100),
+    result VARCHAR(100),
+    failure_code VARCHAR REFERENCES failure_code(code) ON DELETE RESTRICT,
+    message TEXT,
+    is_terminal BOOLEAN,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX mission_event_history_created_at_idx
+    ON mission_event (history_id, created_at);
+
+-- =========================================================
+-- 11) MISSION_MEDIA
+-- =========================================================
+CREATE TABLE mission_media (
+    id BIGSERIAL PRIMARY KEY,
+    history_id INT NOT NULL REFERENCES mission_history(id) ON DELETE CASCADE,
+    event_id BIGINT,
     media_type VARCHAR(20) NOT NULL,
     file_path VARCHAR(512) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX mission_history_media_mission_id_idx ON mission_history_media (mission_id);
-CREATE INDEX mission_history_media_history_id_idx ON mission_history_media (history_id);
-CREATE INDEX missions_deleted_at_idx ON missions (deleted_at);
-CREATE INDEX missions_user_status_active_idx ON missions (user_id, status, schedule) WHERE deleted_at IS NULL;
-CREATE INDEX mission_history_mission_id_created_at_idx ON mission_history (mission_id, created_at DESC);
-CREATE INDEX mission_history_user_id_created_at_idx ON mission_history (user_id, created_at DESC);
+CREATE INDEX mission_media_history_id_idx
+    ON mission_media (history_id);
 
-
-CREATE TABLE mission_log (
-    id SERIAL PRIMARY KEY,
-    mission_id INTEGER NOT NULL,
-    uav_id INTEGER NOT NULL,
-    waypoints INTEGER NOT NULL,
-    altitude INTEGER NOT NULL,
-    coordinate VARCHAR(512) NOT NULL,
-    batt INTEGER NOT NULL,
-    times TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+-- =========================================================
+-- 12) DEVICE_TOKENS
+-- =========================================================
+CREATE TABLE device_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    token_hash VARCHAR(64) NOT NULL UNIQUE,
+    scope_type VARCHAR(20) NOT NULL,
+    uav_id INT REFERENCES uav(id) ON DELETE CASCADE,
+    docking_id INT REFERENCES docking(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    CONSTRAINT device_tokens_scope_check CHECK (
+        (scope_type = 'uav' AND uav_id IS NOT NULL AND docking_id IS NULL) OR
+        (scope_type = 'docking' AND docking_id IS NOT NULL AND uav_id IS NULL)
+    )
 );
 
-ALTER TABLE mission_log
-    ALTER COLUMN altitude TYPE DOUBLE PRECISION,
-    ALTER COLUMN batt TYPE DOUBLE PRECISION,
-    ALTER COLUMN coordinate TYPE TEXT;
+CREATE INDEX device_tokens_uav_id_idx ON device_tokens (uav_id);
+CREATE INDEX device_tokens_docking_id_idx ON device_tokens (docking_id);
 
-
-
-INSERT INTO users (
-    email, 
-    dob, 
-    phone, 
-    username, 
-    pilot_cert, 
-    password_hash
-) VALUES (
-    'rishaldy7@gmail.com', 
-    '1990-01-01', 
-    '+628561947593', 
-    'aldy', 
-    '998271219289', 
-    '$2a$10$wT.fQ8fH3S5p.hT.Q1u0uO/t2S1x.M.Q1u0uO/t2S1x.M.');
-
-TRUNCATE TABLE mission_log;
-ALTER SEQUENCE mission_log_id_seq RESTART WITH 1;
+COMMIT;

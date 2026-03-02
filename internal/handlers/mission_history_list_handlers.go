@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -21,23 +22,52 @@ func (h *Handlers) ListMissionHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	missionIDStr := r.URL.Query().Get("mission_id")
+	var missionID int
+	hasMissionFilter := false
+	if missionIDStr != "" {
+		parsed, err := strconv.Atoi(missionIDStr)
+		if err != nil || parsed <= 0 {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid mission ID"})
+			return
+		}
+		missionID = parsed
+		hasMissionFilter = true
+	}
+
 	page, limit := parsePagination(r, defaultHistoryPage, defaultHistoryLimit, maxHistoryLimit)
 	offset := (page - 1) * limit
 
 	var total int
-	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM mission_history WHERE user_id = $1`, userID).Scan(&total); err != nil {
+	countQuery := `SELECT COUNT(*) FROM mission_history WHERE user_id = $1`
+	countArgs := []interface{}{userID}
+	if hasMissionFilter {
+		countQuery += " AND mission_id = $2"
+		countArgs = append(countArgs, missionID)
+	}
+	if err := h.DB.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
 		log.Printf("Error counting mission history: %v", err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load mission history"})
 		return
 	}
 
-	rows, err := h.DB.Query(`
+	query := `
         SELECT id, mission_id, user_id, uav_id, status, failure_reason,
                started_at, completed_at, created_at, mission_snapshot
         FROM mission_history
-        WHERE user_id = $1
+        WHERE user_id = $1`
+	args := []interface{}{userID}
+	if hasMissionFilter {
+		query += " AND mission_id = $2"
+		args = append(args, missionID)
+	}
+	query += `
         ORDER BY completed_at DESC NULLS LAST, created_at DESC
-        LIMIT $2 OFFSET $3`, userID, limit, offset)
+        LIMIT $%d OFFSET $%d`
+	args = append(args, limit, offset)
+	query = fmt.Sprintf(query, len(args)-1, len(args))
+
+	rows, err := h.DB.Query(query, args...)
 	if err != nil {
 		log.Printf("Error querying mission history list: %v", err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load mission history"})

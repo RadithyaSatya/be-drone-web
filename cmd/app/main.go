@@ -40,5 +40,5 @@ func main() {
 	router := server.SetupRouter(h, wsHandler)
 
 	log.Printf("Server starting on port %s...", cfg.Addr)
-	log.Fatal(http.ListenAndServe(cfg.Addr, middleware.CorsMiddleware(router)))
+	log.Fatal(http.ListenAndServe(cfg.Addr, middleware.LoggingMiddleware(middleware.CorsMiddleware(router))))
 }

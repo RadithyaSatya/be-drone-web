@@ -11,17 +11,12 @@ type MissionHistoryEntry struct {
 	UserID          int                   `json:"user_id"`
 	UavID           int                   `json:"uav_id"`
 	Status          string                `json:"status"`
-	FailureReason   *string               `json:"failure_reason,omitempty"`
-	StartedAt       *time.Time            `json:"started_at,omitempty"`
-	CompletedAt     *time.Time            `json:"completed_at,omitempty"`
+	FailureReason   *string               `json:"failure_reason"`
+	StartedAt       *time.Time            `json:"started_at"`
+	CompletedAt     *time.Time            `json:"completed_at"`
 	CreatedAt       time.Time             `json:"created_at"`
-	MissionSnapshot json.RawMessage       `json:"mission_snapshot,omitempty"`
-	Media           []MissionHistoryMedia `json:"media,omitempty"`
-}
-
-type MissionHistoryResponse struct {
-	Mission Mission               `json:"mission"`
-	History []MissionHistoryEntry `json:"history"`
+	MissionSnapshot json.RawMessage       `json:"mission_snapshot"`
+	Media           []MissionHistoryMedia `json:"media"`
 }
 
 type MissionHistoryMedia struct {
@@ -38,13 +33,13 @@ type MissionHistoryListItem struct {
 	MissionID     int        `json:"mission_id"`
 	MissionName   string     `json:"mission_name"`
 	UserID        int        `json:"user_id"`
-	UserName      *string    `json:"user_name,omitempty"`
+	UserName      *string    `json:"user_name"`
 	UavID         int        `json:"uav_id"`
 	Status        string     `json:"status"`
-	FailureReason *string    `json:"failure_reason,omitempty"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	DurationSec   *int64     `json:"duration_seconds,omitempty"`
+	FailureReason *string    `json:"failure_reason"`
+	StartedAt     *time.Time `json:"started_at"`
+	CompletedAt   *time.Time `json:"completed_at"`
+	DurationSec   *int64     `json:"duration_seconds"`
 	CreatedAt     time.Time  `json:"created_at"`
 }
 

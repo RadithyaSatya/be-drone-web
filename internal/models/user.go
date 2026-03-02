@@ -6,9 +6,9 @@ type UserListItem struct {
 	ID        int        `json:"id"`
 	Email     string     `json:"email"`
 	Username  string     `json:"username"`
-	DOB       *time.Time `json:"dob,omitempty"`
-	Phone     *string    `json:"phone,omitempty"`
-	PilotCert *string    `json:"pilot_cert,omitempty"`
+	DOB       *time.Time `json:"dob"`
+	Phone     *string    `json:"phone"`
+	PilotCert *string    `json:"pilot_cert"`
 	CreatedAt time.Time  `json:"created_at"`
 }
 

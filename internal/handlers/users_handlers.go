@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -14,9 +15,9 @@ import (
 )
 
 const (
-	defaultUsersPage  = 1
-	defaultUsersLimit = 20
-	maxUsersLimit     = 100
+	defaultUsersPage         = 1
+	defaultUsersLimit        = 20
+	maxUsersLimit            = 100
 	defaultBootstrapKey      = "change-me"
 	defaultBootstrapEmail    = "default@example.com"
 	defaultBootstrapUsername = "default"
@@ -43,8 +44,21 @@ type bootstrapUserRequest struct {
 }
 
 type bootstrapUserResponse struct {
-	ID      int    `json:"id,omitempty"`
+	ID      int    `json:"id"`
 	Message string `json:"message"`
+}
+
+type updateProfileRequest struct {
+	Email     *string `json:"email"`
+	DOB       *string `json:"dob"`
+	Phone     *string `json:"phone"`
+	Username  *string `json:"username"`
+	PilotCert *string `json:"pilot_cert"`
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -262,6 +276,237 @@ func (h *Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 		PrevPage:   prevPage,
 		Items:      items,
 	})
+}
+
+func (h *Handlers) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req updateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
+		return
+	}
+
+	setClauses := []string{}
+	args := []interface{}{}
+
+	if req.Email != nil {
+		email := strings.TrimSpace(*req.Email)
+		if email == "" {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "email cannot be empty"})
+			return
+		}
+		setClauses = append(setClauses, fmt.Sprintf("email = $%d", len(args)+1))
+		args = append(args, email)
+	}
+
+	if req.Username != nil {
+		username := strings.TrimSpace(*req.Username)
+		if username == "" {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "username cannot be empty"})
+			return
+		}
+		setClauses = append(setClauses, fmt.Sprintf("username = $%d", len(args)+1))
+		args = append(args, username)
+	}
+
+	if req.DOB != nil {
+		dobStr := strings.TrimSpace(*req.DOB)
+		var dob sql.NullTime
+		if dobStr != "" {
+			parsed, err := time.Parse("2006-01-02", dobStr)
+			if err != nil {
+				respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "dob must be YYYY-MM-DD"})
+				return
+			}
+			dob = sql.NullTime{Time: parsed, Valid: true}
+		}
+		setClauses = append(setClauses, fmt.Sprintf("dob = $%d", len(args)+1))
+		args = append(args, dob)
+	}
+
+	if req.Phone != nil {
+		phone := strings.TrimSpace(*req.Phone)
+		phoneNull := sql.NullString{}
+		if phone != "" {
+			phoneNull = sql.NullString{String: phone, Valid: true}
+		}
+		setClauses = append(setClauses, fmt.Sprintf("phone = $%d", len(args)+1))
+		args = append(args, phoneNull)
+	}
+
+	if req.PilotCert != nil {
+		pilot := strings.TrimSpace(*req.PilotCert)
+		pilotNull := sql.NullString{}
+		if pilot != "" {
+			pilotNull = sql.NullString{String: pilot, Valid: true}
+		}
+		setClauses = append(setClauses, fmt.Sprintf("pilot_cert = $%d", len(args)+1))
+		args = append(args, pilotNull)
+	}
+
+	if len(setClauses) == 0 {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "No fields provided to update"})
+		return
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE users
+		SET %s
+		WHERE id = $%d
+		RETURNING id, email, dob, phone, username, pilot_cert, created_at`,
+		strings.Join(setClauses, ", "),
+		len(args)+1,
+	)
+	args = append(args, userID)
+
+	var item models.UserListItem
+	var dob sql.NullTime
+	var phone sql.NullString
+	var pilotCert sql.NullString
+
+	err := h.DB.QueryRow(query, args...).Scan(
+		&item.ID,
+		&item.Email,
+		&dob,
+		&phone,
+		&item.Username,
+		&pilotCert,
+		&item.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return
+		}
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			respondWithJSON(w, http.StatusConflict, map[string]string{"error": "email or username already exists"})
+			return
+		}
+		log.Printf("Failed to update profile: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update profile"})
+		return
+	}
+
+	if dob.Valid {
+		item.DOB = &dob.Time
+	}
+	if phone.Valid {
+		item.Phone = &phone.String
+	}
+	if pilotCert.Valid {
+		item.PilotCert = &pilotCert.String
+	}
+
+	respondWithJSON(w, http.StatusOK, item)
+}
+
+func (h *Handlers) GetMyProfile(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var item models.UserListItem
+	var dob sql.NullTime
+	var phone sql.NullString
+	var pilotCert sql.NullString
+
+	err := h.DB.QueryRow(`
+		SELECT id, email, dob, phone, username, pilot_cert, created_at
+		FROM users
+		WHERE id = $1`, userID,
+	).Scan(
+		&item.ID,
+		&item.Email,
+		&dob,
+		&phone,
+		&item.Username,
+		&pilotCert,
+		&item.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return
+		}
+		log.Printf("Failed to load profile: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load user"})
+		return
+	}
+
+	if dob.Valid {
+		item.DOB = &dob.Time
+	}
+	if phone.Valid {
+		item.Phone = &phone.String
+	}
+	if pilotCert.Valid {
+		item.PilotCert = &pilotCert.String
+	}
+
+	respondWithJSON(w, http.StatusOK, item)
+}
+
+func (h *Handlers) ChangeMyPassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
+		return
+	}
+
+	if strings.TrimSpace(req.CurrentPassword) == "" || strings.TrimSpace(req.NewPassword) == "" {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "current_password and new_password are required"})
+		return
+	}
+
+	var storedHash string
+	if err := h.DB.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&storedHash); err != nil {
+		if err == sql.ErrNoRows {
+			respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return
+		}
+		log.Printf("Failed to load password hash: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load user"})
+		return
+	}
+
+	ok, err := verifyPassword(req.CurrentPassword, storedHash)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid password hash"})
+		return
+	}
+	if !ok {
+		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		return
+	}
+
+	hashed, err := hashPassword(req.NewPassword)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+		return
+	}
+
+	result, err := h.DB.Exec(`UPDATE users SET password_hash = $1 WHERE id = $2`, hashed, userID)
+	if err != nil {
+		log.Printf("Failed to update password: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update password"})
+		return
+	}
+	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Password updated successfully"})
 }
 
 func nullString(value string) sql.NullString {

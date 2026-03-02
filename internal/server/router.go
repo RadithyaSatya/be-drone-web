@@ -14,18 +14,23 @@ func SetupRouter(h *handlers.Handlers, wsHandler http.Handler) *mux.Router {
 
 	registerAuthRoutes(router, h)
 	registerRealtimeWebsocketRoutes(router, wsHandler)
+	registerPublicAssetRoutes(router)
 
 	protected := router.PathPrefix("/").Subrouter()
-	protected.Use(middleware.AuthMiddleware)
+	protected.Use(middleware.AuthMiddleware(h.DB))
 
 	// Mission management and mission telemetry history
 	registerMissionRoutes(protected, h)
 	// Location and media assets
 	registerAssetRoutes(protected, h)
+	// Docking management
+	registerDockingRoutes(protected, h)
 	// Realtime ingestion
 	registerRealtimeRoutes(protected, h)
 	// User management
 	registerUserRoutes(protected, h)
+	// UAV management
+	registerUavRoutes(protected, h)
 	// Auth-protected helper endpoints
 	registerAuthProtectedRoutes(protected, h)
 
@@ -39,7 +44,7 @@ func registerMissionRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/missions/{id}/start", h.StartMission).Methods("POST")
 	router.HandleFunc("/mission-history/{history_id}/complete", h.CompleteMissionByHistoryID).Methods("POST")
 	router.HandleFunc("/mission-history", h.ListMissionHistory).Methods("GET")
-	router.HandleFunc("/missions/{id}/history", h.GetMissionHistory).Methods("GET")
+	router.HandleFunc("/mission-history/me", h.ListMissionHistory).Methods("GET")
 	router.HandleFunc("/missions/next/{user_id}", h.GetLastMission).Methods("GET")
 	router.HandleFunc("/missions/user/{user_id}", h.GetMissionsByUser).Methods("GET")
 	router.HandleFunc("/register-mission", h.SaveNewMission).Methods("POST")
@@ -52,6 +57,17 @@ func registerAssetRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/upload-footage", h.UploadFootage).Methods("POST")
 	router.PathPrefix("/footages/").Handler(
 		http.StripPrefix("/footages/", http.FileServer(http.Dir("./uploads/footages"))))
+}
+
+func registerDockingRoutes(router *mux.Router, h *handlers.Handlers) {
+	router.HandleFunc("/dockings", h.CreateDocking).Methods("POST")
+	router.HandleFunc("/dockings/{id}", h.UpdateDocking).Methods("PATCH")
+	router.HandleFunc("/dockings/{id}", h.DeleteDocking).Methods("DELETE")
+}
+
+func registerPublicAssetRoutes(router *mux.Router) {
+	router.PathPrefix("/uav-images/").Handler(
+		http.StripPrefix("/uav-images/", http.FileServer(http.Dir("./uploads/uav_images"))))
 }
 
 func registerRealtimeRoutes(router *mux.Router, h *handlers.Handlers) {
@@ -70,8 +86,25 @@ func registerAuthRoutes(router *mux.Router, h *handlers.Handlers) {
 func registerUserRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/register-user", h.CreateUser).Methods("POST")
 	router.HandleFunc("/users", h.ListUsers).Methods("GET")
+	router.HandleFunc("/users/me", h.GetMyProfile).Methods("GET")
+	router.HandleFunc("/users/me", h.UpdateMyProfile).Methods("PATCH")
+	router.HandleFunc("/users/me/password", h.ChangeMyPassword).Methods("PATCH")
+}
+
+func registerUavRoutes(router *mux.Router, h *handlers.Handlers) {
+	router.HandleFunc("/uavs", h.CreateUAV).Methods("POST")
+	router.HandleFunc("/uavs", h.ListUAVs).Methods("GET")
+	router.HandleFunc("/uavs/me", h.ListMyUAVs).Methods("GET")
+	router.HandleFunc("/uavs/me/dropdown", h.ListMyUAVDropdown).Methods("GET")
+	router.HandleFunc("/uavs/assign", h.AssignUAVToUser).Methods("POST")
+	router.HandleFunc("/uavs/{id}", h.GetUAVByID).Methods("GET")
+	router.HandleFunc("/uavs/{id}", h.UpdateUAV).Methods("PATCH")
+	router.HandleFunc("/uavs/{id}/image", h.UploadUAVImage).Methods("POST")
+	router.HandleFunc("/uavs/{id}", h.DeleteUAV).Methods("DELETE")
 }
 
 func registerAuthProtectedRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/auth/ws-token", h.GenerateWSToken).Methods("POST")
+	router.HandleFunc("/device-tokens/uav/{uav_id}", h.CreateUavDeviceToken).Methods("POST")
+	router.HandleFunc("/device-tokens/docking/{docking_id}", h.CreateDockingDeviceToken).Methods("POST")
 }

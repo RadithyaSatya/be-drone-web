@@ -10,7 +10,10 @@ import (
 	"xflight-backend/internal/ws"
 )
 
-const footageUploadDir = "./uploads/footages"
+const (
+	footageUploadDir  = "./uploads/footages"
+	uavImageUploadDir = "./uploads/uav_images"
+)
 
 type Handlers struct {
 	DB          *sql.DB
@@ -18,8 +21,11 @@ type Handlers struct {
 }
 
 func init() {
-	if err := os.MkdirAll(footageUploadDir, os.ModePerm); err != nil {
-		log.Fatalf("Failed to create upload directory: %v", err)
+	dirs := []string{footageUploadDir, uavImageUploadDir}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+			log.Fatalf("Failed to create upload directory: %v", err)
+		}
 	}
 }
 
