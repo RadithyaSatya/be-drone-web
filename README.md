@@ -147,6 +147,19 @@ Notes:
 - Credentials are validated against the `users` table.
 - Passwords are stored as bcrypt hashes by default.
 
+### Bootstrap Default User
+- `POST /bootstrap/default-user`
+```json
+{
+  "key": "change-me"
+}
+```
+Defaults created by this endpoint:
+- `username`: `default`
+- `password`: `change-me`
+- `email`: `default@example.com`
+Note: call once; subsequent calls return 409.
+
 ### Add User (JWT or Device Token)
 - `POST /register-user`
 ```

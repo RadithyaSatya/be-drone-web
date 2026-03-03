@@ -105,6 +105,7 @@ func registerUavRoutes(router *mux.Router, h *handlers.Handlers) {
 
 func registerAuthProtectedRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/auth/ws-token", h.GenerateWSToken).Methods("POST")
+	router.HandleFunc("/auth/logout", h.Logout).Methods("POST")
 	router.HandleFunc("/device-tokens/uav/{uav_id}", h.CreateUavDeviceToken).Methods("POST")
 	router.HandleFunc("/device-tokens/docking/{docking_id}", h.CreateDockingDeviceToken).Methods("POST")
 }

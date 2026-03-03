@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"xflight-backend/internal/auth"
+
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -83,4 +85,28 @@ func getEnvOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+type logoutResponse struct {
+	Message string `json:"message"`
+}
+
+func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
+	deviceClaims, hasDevice := auth.DeviceClaimsFromContext(r.Context())
+	if hasDevice && deviceClaims != nil {
+		if h.DB == nil {
+			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "database not configured"})
+			return
+		}
+
+		if _, err := h.DB.Exec(`UPDATE device_tokens SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL`, deviceClaims.TokenID); err != nil {
+			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to revoke device token"})
+			return
+		}
+
+		respondWithJSON(w, http.StatusOK, logoutResponse{Message: "device token revoked"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, logoutResponse{Message: "logout ok"})
 }
