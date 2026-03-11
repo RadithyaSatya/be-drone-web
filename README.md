@@ -64,6 +64,7 @@ Use `metric=uav_status` or `metric=docking_status` when `kind=status`.
 For `kind=telemetry`, `metric` represents the telemetry channel name (`battery`, `location`, `imu`, etc.).
 - `payload` (required): object
 For `kind=status`, backend **upserts** `uav_status` or `docking_status` and updates `last_heartbeat`.
+For UAV status, connectivity/activity should be inferred from `last_heartbeat`; `is_connected` is no longer stored.
 For `metric=uav_status`, `drone_id` should be the UAV `id` or `serial_number`.
 For `metric=docking_status`, the backend updates the docking tied to the device token.
 If you use a UAV token/JWT, send `docking_id` (must belong to `drone_id`) to target a specific docking; otherwise it falls back to the primary active docking.
@@ -92,7 +93,6 @@ For status:
   "ts": "2026-02-05T10:01:00Z",
   "payload": {
     "battery_percent": 80,
-    "is_connected": true,
     "is_in_flight": false,
     "is_docked": true,
     "last_heartbeat": "2026-02-05T10:01:00Z"
@@ -146,19 +146,6 @@ Response:
 Notes:
 - Credentials are validated against the `users` table.
 - Passwords are stored as bcrypt hashes by default.
-
-### Bootstrap Default User
-- `POST /bootstrap/default-user`
-```json
-{
-  "key": "change-me"
-}
-```
-Defaults created by this endpoint:
-- `username`: `default`
-- `password`: `change-me`
-- `email`: `default@example.com`
-Note: call once; subsequent calls return 409.
 
 ### Add User (JWT or Device Token)
 - `POST /register-user`

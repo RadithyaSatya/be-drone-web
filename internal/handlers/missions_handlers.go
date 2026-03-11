@@ -597,7 +597,6 @@ func (h *Handlers) loadDockingsByUav(uavID int) ([]models.Docking, error) {
 		var temperature sql.NullFloat64
 		var isOnline sql.NullBool
 		var lastHeartbeat sql.NullTime
-
 		if err := rows.Scan(
 			&docking.ID,
 			&docking.UavID,

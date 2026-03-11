@@ -12,14 +12,14 @@ type DockingStatus struct {
 }
 
 type Docking struct {
-	ID           int            `json:"id"`
-	UavID        int            `json:"uav_id"`
-	Name         *string        `json:"name"`
-	LocationName *string        `json:"location_name"`
-	Latitude     *float64       `json:"latitude"`
-	Longitude    *float64       `json:"longitude"`
-	IsPrimary    bool           `json:"is_primary"`
-	IsActive     bool           `json:"is_active"`
-	CreatedAt    time.Time      `json:"created_at"`
-	Status       *DockingStatus `json:"status"`
+	ID           int              `json:"id"`
+	UavID        int              `json:"uav_id"`
+	Name         *string          `json:"name"`
+	LocationName *string          `json:"location_name"`
+	Latitude     *float64         `json:"latitude"`
+	Longitude    *float64         `json:"longitude"`
+	IsPrimary    bool             `json:"is_primary"`
+	IsActive     bool             `json:"is_active"`
+	CreatedAt    time.Time        `json:"created_at"`
+	Status       *DockingStatus   `json:"status"`
 }

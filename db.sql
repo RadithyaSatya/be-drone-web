@@ -39,7 +39,7 @@ CREATE TABLE uav (
     image_url TEXT,
     max_range_meter INT,
     max_flight_time_min INT,
-    owner_id INT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    owner_id INT REFERENCES users(id) ON DELETE RESTRICT,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ,
@@ -55,7 +55,6 @@ CREATE INDEX uav_owner_id_idx ON uav (owner_id);
 CREATE TABLE uav_status (
     uav_id INT PRIMARY KEY REFERENCES uav(id) ON DELETE CASCADE,
     battery_percent INT CHECK (battery_percent BETWEEN 0 AND 100),
-    is_connected BOOLEAN,
     is_in_flight BOOLEAN,
     is_docked BOOLEAN,
     latitude DOUBLE PRECISION CHECK (latitude BETWEEN -90 AND 90),
@@ -95,6 +94,27 @@ CREATE TABLE docking_status (
     last_heartbeat TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 );
+
+-- =========================================================
+-- DEVICE_TOKENS
+-- =========================================================
+CREATE TABLE device_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    scope_type VARCHAR(20) NOT NULL,
+    uav_id INT REFERENCES uav(id) ON DELETE CASCADE,
+    docking_id INT REFERENCES docking(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    CHECK (
+        (scope_type = 'uav' AND uav_id IS NOT NULL AND docking_id IS NULL) OR
+        (scope_type = 'docking' AND docking_id IS NOT NULL AND uav_id IS NULL)
+    )
+);
+
+CREATE INDEX device_tokens_uav_idx ON device_tokens (scope_type, uav_id, created_at DESC);
+CREATE INDEX device_tokens_docking_idx ON device_tokens (scope_type, docking_id, created_at DESC);
 
 -- =========================================================
 -- MISSIONS
@@ -141,8 +161,7 @@ CREATE TABLE mission_history (
     user_id INT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     uav_id INT REFERENCES uav(id) ON DELETE RESTRICT,
     docking_id INT REFERENCES docking(id) ON DELETE RESTRICT,
-    current_state VARCHAR(100),
-    final_status VARCHAR(100),
+    status VARCHAR(100) NOT NULL,
     failure_code VARCHAR REFERENCES failure_code(code) ON DELETE RESTRICT,
     retry_count INT DEFAULT 0,
     total_duration_ms BIGINT,

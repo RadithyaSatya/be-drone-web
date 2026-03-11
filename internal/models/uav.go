@@ -3,25 +3,24 @@ package models
 import "time"
 
 type Uav struct {
-	ID               int        `json:"id"`
-	OwnerID          *int       `json:"owner_id"`
-	SerialNumber     *string    `json:"serial_number"`
-	Name             *string    `json:"name"`
-	Model            *string    `json:"model"`
-	FirmwareVersion  *string    `json:"firmware_version"`
-	CameraSpec       *string    `json:"camera_spec"`
-	ImageURL         *string    `json:"image_url"`
-	MaxRangeMeter    *int       `json:"max_range_meter"`
-	MaxFlightTimeMin *int       `json:"max_flight_time_min"`
-	IsActive         bool       `json:"is_active"`
-	CreatedAt        time.Time  `json:"created_at"`
-	Status           *UavStatus `json:"status"`
-	Dockings         []Docking  `json:"dockings"`
+	ID               int              `json:"id"`
+	OwnerID          *int             `json:"owner_id"`
+	SerialNumber     *string          `json:"serial_number"`
+	Name             *string          `json:"name"`
+	Model            *string          `json:"model"`
+	FirmwareVersion  *string          `json:"firmware_version"`
+	CameraSpec       *string          `json:"camera_spec"`
+	ImageURL         *string          `json:"image_url"`
+	MaxRangeMeter    *int             `json:"max_range_meter"`
+	MaxFlightTimeMin *int             `json:"max_flight_time_min"`
+	IsActive         bool             `json:"is_active"`
+	CreatedAt        time.Time        `json:"created_at"`
+	Status           *UavStatus       `json:"status"`
+	Dockings         []Docking        `json:"dockings"`
 }
 
 type UavStatus struct {
 	BatteryPercent *int       `json:"battery_percent"`
-	IsConnected    *bool      `json:"is_connected"`
 	IsInFlight     *bool      `json:"is_in_flight"`
 	IsDocked       *bool      `json:"is_docked"`
 	LastHeartbeat  *time.Time `json:"last_heartbeat"`

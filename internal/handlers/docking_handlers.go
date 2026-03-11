@@ -122,7 +122,7 @@ func (h *Handlers) UpdateDocking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uavID, ok := h.ensureDockingOwner(w, r, userID, dockingID)
+	uavID, ok := h.ensureDockingExists(w, r, dockingID)
 	if !ok {
 		return
 	}
@@ -205,7 +205,7 @@ func (h *Handlers) DeleteDocking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.ensureDockingOwner(w, r, userID, dockingID); !ok {
+	if _, ok := h.ensureDockingExists(w, r, dockingID); !ok {
 		return
 	}
 
@@ -256,6 +256,25 @@ func (h *Handlers) ensureDockingOwner(w http.ResponseWriter, r *http.Request, us
 	}
 	if !owner.Valid || int(owner.Int32) != userID {
 		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return 0, false
+	}
+	return uavID, true
+}
+
+func (h *Handlers) ensureDockingExists(w http.ResponseWriter, r *http.Request, dockingID int) (int, bool) {
+	var uavID int
+	err := h.DB.QueryRow(`
+		SELECT d.uav_id
+		FROM docking d
+		JOIN uav u ON u.id = d.uav_id
+		WHERE d.id = $1 AND u.deleted_at IS NULL`, dockingID).Scan(&uavID)
+	if err == sql.ErrNoRows {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Docking not found"})
+		return 0, false
+	}
+	if err != nil {
+		log.Printf("Failed to load docking: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error"})
 		return 0, false
 	}
 	return uavID, true

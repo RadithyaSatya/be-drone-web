@@ -125,11 +125,6 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	isConnected, err := getPayloadBool(req.Payload, "is_connected")
-	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
 	isInFlight, err := getPayloadBool(req.Payload, "is_in_flight")
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -145,10 +140,6 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 	if batteryPercent != nil {
 		battery = sql.NullInt32{Int32: int32(*batteryPercent), Valid: true}
 	}
-	var connected sql.NullBool
-	if isConnected != nil {
-		connected = sql.NullBool{Bool: *isConnected, Valid: true}
-	}
 	var inFlight sql.NullBool
 	if isInFlight != nil {
 		inFlight = sql.NullBool{Bool: *isInFlight, Valid: true}
@@ -161,28 +152,25 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 	lastHeartbeat := time.Now().UTC()
 
 	var storedBattery sql.NullInt32
-	var storedConnected sql.NullBool
 	var storedInFlight sql.NullBool
 	var storedDocked sql.NullBool
 	var storedHeartbeat sql.NullTime
 
 	err = h.DB.QueryRow(`
-		INSERT INTO uav_status (uav_id, battery_percent, is_connected, is_in_flight, is_docked, last_heartbeat)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO uav_status (uav_id, battery_percent, is_in_flight, is_docked, last_heartbeat)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (uav_id) DO UPDATE SET
 			battery_percent = COALESCE(EXCLUDED.battery_percent, uav_status.battery_percent),
-			is_connected = COALESCE(EXCLUDED.is_connected, uav_status.is_connected),
 			is_in_flight = COALESCE(EXCLUDED.is_in_flight, uav_status.is_in_flight),
 			is_docked = COALESCE(EXCLUDED.is_docked, uav_status.is_docked),
 			last_heartbeat = EXCLUDED.last_heartbeat
-		RETURNING battery_percent, is_connected, is_in_flight, is_docked, last_heartbeat`,
+		RETURNING battery_percent, is_in_flight, is_docked, last_heartbeat`,
 		uavID,
 		battery,
-		connected,
 		inFlight,
 		docked,
 		lastHeartbeat,
-	).Scan(&storedBattery, &storedConnected, &storedInFlight, &storedDocked, &storedHeartbeat)
+	).Scan(&storedBattery, &storedInFlight, &storedDocked, &storedHeartbeat)
 	if err != nil {
 		log.Printf("Failed to upsert UAV status: %v", err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update UAV status"})
@@ -193,10 +181,6 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 	if storedBattery.Valid {
 		value := int(storedBattery.Int32)
 		status.BatteryPercent = &value
-	}
-	if storedConnected.Valid {
-		value := storedConnected.Bool
-		status.IsConnected = &value
 	}
 	if storedInFlight.Valid {
 		value := storedInFlight.Bool
@@ -215,7 +199,6 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 		payload := map[string]interface{}{
 			"uav_id":          uavID,
 			"battery_percent": status.BatteryPercent,
-			"is_connected":    status.IsConnected,
 			"is_in_flight":    status.IsInFlight,
 			"is_docked":       status.IsDocked,
 			"last_heartbeat":  status.LastHeartbeat,

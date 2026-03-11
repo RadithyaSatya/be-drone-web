@@ -1230,7 +1230,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"drone_id\": \"DRN-001\",\n  \"kind\": \"status\",\n  \"metric\": \"uav_status\",\n  \"payload\": {\n    \"battery_percent\": 80,\n    \"is_connected\": true,\n    \"is_in_flight\": false,\n    \"is_docked\": true,\n    \"last_heartbeat\": \"2026-02-05T10:01:00Z\"\n  }\n}"
+                            "raw": "{\n  \"drone_id\": \"DRN-001\",\n  \"kind\": \"status\",\n  \"metric\": \"uav_status\",\n  \"payload\": {\n    \"battery_percent\": 80,\n    \"is_in_flight\": false,\n    \"is_docked\": true\n  }\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/realtime/telemetry",

@@ -118,7 +118,7 @@ func (h *Handlers) ListUAVs(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(`
 		SELECT u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
 		       u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
-		       s.battery_percent, s.is_connected, s.is_in_flight, s.is_docked, s.last_heartbeat
+		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM uav u
 		LEFT JOIN uav_status s ON s.uav_id = u.id
 		WHERE u.deleted_at IS NULL
@@ -231,7 +231,7 @@ func (h *Handlers) ListMyUAVs(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(`
 		SELECT u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
 		       u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
-		       s.battery_percent, s.is_connected, s.is_in_flight, s.is_docked, s.last_heartbeat
+		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM uav u
 		LEFT JOIN uav_status s ON s.uav_id = u.id
 		WHERE u.deleted_at IS NULL AND u.owner_id = $1
@@ -295,7 +295,7 @@ func (h *Handlers) GetUAVByID(w http.ResponseWriter, r *http.Request) {
 	row := h.DB.QueryRow(`
 		SELECT u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
 		       u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
-		       s.battery_percent, s.is_connected, s.is_in_flight, s.is_docked, s.last_heartbeat
+		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM uav u
 		LEFT JOIN uav_status s ON s.uav_id = u.id
 		WHERE u.id = $1 AND u.deleted_at IS NULL`, id)
@@ -397,7 +397,7 @@ func (h *Handlers) UpdateUAV(w http.ResponseWriter, r *http.Request) {
 		)
 		SELECT updated.id, updated.serial_number, updated.name, updated.model, updated.firmware_version, updated.camera_spec, updated.image_url,
 		       updated.max_range_meter, updated.max_flight_time_min, updated.owner_id, updated.is_active, updated.created_at,
-		       s.battery_percent, s.is_connected, s.is_in_flight, s.is_docked, s.last_heartbeat
+		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM updated
 		LEFT JOIN uav_status s ON s.uav_id = updated.id`,
 		strings.Join(setClauses, ", "),
@@ -450,7 +450,7 @@ func (h *Handlers) AssignUAVToUser(w http.ResponseWriter, r *http.Request) {
 		)
 		SELECT updated.id, updated.serial_number, updated.name, updated.model, updated.firmware_version, updated.camera_spec, updated.image_url,
 		       updated.max_range_meter, updated.max_flight_time_min, updated.owner_id, updated.is_active, updated.created_at,
-		       s.battery_percent, s.is_connected, s.is_in_flight, s.is_docked, s.last_heartbeat
+		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM updated
 		LEFT JOIN uav_status s ON s.uav_id = updated.id`, userID, serial)
 
@@ -529,7 +529,6 @@ func scanUavRow(scanner rowScanner) (models.Uav, error) {
 	var maxFlight sql.NullInt32
 	var owner sql.NullInt32
 	var batteryPercent sql.NullInt32
-	var isConnected sql.NullBool
 	var isInFlight sql.NullBool
 	var isDocked sql.NullBool
 	var lastHeartbeat sql.NullTime
@@ -548,7 +547,6 @@ func scanUavRow(scanner rowScanner) (models.Uav, error) {
 		&item.IsActive,
 		&item.CreatedAt,
 		&batteryPercent,
-		&isConnected,
 		&isInFlight,
 		&isDocked,
 		&lastHeartbeat,
@@ -593,15 +591,11 @@ func scanUavRow(scanner rowScanner) (models.Uav, error) {
 		value := int(owner.Int32)
 		item.OwnerID = &value
 	}
-	if batteryPercent.Valid || isConnected.Valid || isInFlight.Valid || isDocked.Valid || lastHeartbeat.Valid {
+	if batteryPercent.Valid || isInFlight.Valid || isDocked.Valid || lastHeartbeat.Valid {
 		status := models.UavStatus{}
 		if batteryPercent.Valid {
 			value := int(batteryPercent.Int32)
 			status.BatteryPercent = &value
-		}
-		if isConnected.Valid {
-			value := isConnected.Bool
-			status.IsConnected = &value
 		}
 		if isInFlight.Valid {
 			value := isInFlight.Bool
