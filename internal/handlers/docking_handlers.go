@@ -122,7 +122,7 @@ func (h *Handlers) UpdateDocking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uavID, ok := h.ensureDockingExists(w, r, dockingID)
+	uavID, ok := h.ensureDockingOwner(w, r, userID, dockingID)
 	if !ok {
 		return
 	}
@@ -205,7 +205,7 @@ func (h *Handlers) DeleteDocking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.ensureDockingExists(w, r, dockingID); !ok {
+	if _, ok := h.ensureDockingOwner(w, r, userID, dockingID); !ok {
 		return
 	}
 
