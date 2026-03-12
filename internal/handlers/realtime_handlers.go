@@ -16,7 +16,7 @@ import (
 )
 
 type realtimeTelemetryRequest struct {
-	DroneID string                 `json:"drone_id"`
+	UavID   int                    `json:"uav_id"`
 	Kind    string                 `json:"kind"`
 	Metric  string                 `json:"metric"`
 	Payload map[string]interface{} `json:"payload"`
@@ -39,11 +39,10 @@ func (h *Handlers) SubmitRealtimeTelemetry(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	req.DroneID = strings.TrimSpace(req.DroneID)
 	req.Kind = strings.TrimSpace(req.Kind)
 	req.Metric = strings.TrimSpace(req.Metric)
-	if req.DroneID == "" {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "drone_id is required"})
+	if req.UavID <= 0 {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "uav_id is required"})
 		return
 	}
 	if req.Payload == nil {
@@ -78,7 +77,7 @@ func (h *Handlers) SubmitRealtimeTelemetry(w http.ResponseWriter, r *http.Reques
 	}
 
 	msg := &telemetry.Message{
-		DroneID:   req.DroneID,
+		UavID:     req.UavID,
 		Kind:      req.Kind,
 		Metric:    req.Metric,
 		Timestamp: time.Now().UTC(),
@@ -105,11 +104,7 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	uavID, err := h.resolveUavID(req.DroneID)
-	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
+	uavID := req.UavID
 
 	if !h.ensureRealtimeUavAccess(w, r, uavID) {
 		return
@@ -204,7 +199,7 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 			"last_heartbeat":  status.LastHeartbeat,
 		}
 		h.RealtimeHub.Broadcast(&telemetry.Message{
-			DroneID:   strconv.Itoa(uavID),
+			UavID:     uavID,
 			Kind:      telemetry.KindStatus,
 			Metric:    req.Metric,
 			Timestamp: time.Now().UTC(),
@@ -225,11 +220,7 @@ func (h *Handlers) handleRealtimeDockingStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	uavID, err := h.resolveUavID(req.DroneID)
-	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
+	uavID := req.UavID
 
 	payloadDockingID, err := getPayloadInt(req.Payload, "docking_id")
 	if err != nil {
@@ -437,7 +428,7 @@ func (h *Handlers) handleRealtimeDockingStatus(w http.ResponseWriter, r *http.Re
 			"last_heartbeat": status.LastHeartbeat,
 		}
 		h.RealtimeHub.Broadcast(&telemetry.Message{
-			DroneID:   strconv.Itoa(uavID),
+			UavID:     uavID,
 			Kind:      telemetry.KindStatus,
 			Metric:    req.Metric,
 			Timestamp: time.Now().UTC(),
@@ -535,23 +526,6 @@ func (h *Handlers) resolveDockingUavID(dockingID int) (int, error) {
 		return 0, fmt.Errorf("database error")
 	}
 	return uavID, nil
-}
-
-func (h *Handlers) resolveUavID(droneID string) (int, error) {
-	if id, err := strconv.Atoi(droneID); err == nil && id > 0 {
-		return id, nil
-	}
-
-	var id int
-	err := h.DB.QueryRow(`SELECT id FROM uav WHERE serial_number = $1 AND deleted_at IS NULL`, droneID).Scan(&id)
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("uav not found")
-	}
-	if err != nil {
-		log.Printf("Failed to resolve UAV by serial_number: %v", err)
-		return 0, fmt.Errorf("database error")
-	}
-	return id, nil
 }
 
 func getPayloadInt(payload map[string]interface{}, key string) (*int, error) {

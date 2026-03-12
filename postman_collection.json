@@ -1195,7 +1195,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"drone_id\": \"DRN-001\",\n  \"kind\": \"telemetry\",\n  \"metric\": \"battery\",\n  \"payload\": {\n    \"percent\": 78.2,\n    \"voltage\": 15.6\n  }\n}"
+                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"telemetry\",\n  \"metric\": \"battery\",\n  \"payload\": {\n    \"percent\": 78.2,\n    \"voltage\": 15.6\n  }\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/realtime/telemetry",
@@ -1230,7 +1230,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"drone_id\": \"DRN-001\",\n  \"kind\": \"status\",\n  \"metric\": \"uav_status\",\n  \"payload\": {\n    \"battery_percent\": 80,\n    \"is_in_flight\": false,\n    \"is_docked\": true\n  }\n}"
+                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"status\",\n  \"metric\": \"uav_status\",\n  \"payload\": {\n    \"battery_percent\": 80,\n    \"is_in_flight\": false,\n    \"is_docked\": true\n  }\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/realtime/telemetry",
@@ -1266,7 +1266,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"drone_id\": \"DRN-001\",\n  \"kind\": \"status\",\n  \"metric\": \"docking_status\",\n  \"payload\": {\n    \"docking_id\": {{dockingId}},\n    \"is_online\": false,\n    \"door_open\": false,\n    \"drone_present\": false,\n    \"charging\": false,\n    \"temperature\": 28.5\n  }\n}"
+                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"status\",\n  \"metric\": \"docking_status\",\n  \"payload\": {\n    \"docking_id\": {{dockingId}},\n    \"is_online\": false,\n    \"door_open\": false,\n    \"drone_present\": false,\n    \"charging\": false,\n    \"temperature\": 28.5\n  }\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/realtime/telemetry",
@@ -1301,7 +1301,7 @@
                                 }
                             ]
                         },
-                        "description": "Connect with ws:// and a valid wsToken from /auth/ws-token."
+                        "description": "Connect with ws:// and a valid wsToken from /auth/ws-token. After connect, send {\"type\":\"subscribe\",\"uav_ids\":[{{uavId}}]} to receive updates, or {\"type\":\"publish\",\"uav_id\":{{uavId}},\"kind\":\"telemetry\",\"metric\":\"battery\",\"payload\":{\"percent\":78.2}} to publish telemetry directly over the same socket."
                     }
                 }
             ]

@@ -31,12 +31,12 @@ Import the Postman collection to analyze and test all of the available endpoints
 
 ## ⚡ Realtime Telemetry (HTTP → WebSocket)
 
-**Goal**: Device gateways/services send realtime telemetry to backend HTTP endpoints, and the backend forwards it to frontend clients via WebSocket.
+**Goal**: Device gateways/services send realtime telemetry to backend via HTTP or WebSocket, and the backend forwards it to subscribed frontend clients via WebSocket.
 
 ### Data Flow (short)
-1. A producer sends telemetry to `POST /realtime/telemetry`.
+1. A producer sends telemetry to `POST /realtime/telemetry` or publishes it on `/ws/telemetry`.
 2. Backend validates and normalizes the request body.
-3. Backend pushes the message to WS clients subscribed to the same `drone_id`.
+3. Backend pushes the message to WS clients subscribed to the same `uav_id`.
 4. Frontend receives realtime updates on `/ws/telemetry`.
 
 ### HTTP Ingestion Contract
@@ -46,7 +46,7 @@ Endpoint:
 Request JSON:
 ```json
 {
-  "drone_id": "DRN-001",
+  "uav_id": 2,
   "kind": "telemetry",
   "metric": "battery",
   "payload": {
@@ -57,7 +57,7 @@ Request JSON:
 ```
 
 Fields:
-- `drone_id` (required)
+- `uav_id` (required): UAV primary key from table `uav`
 - `kind` (required): `telemetry` or `status`
 - `metric` (required)
 Use `metric=uav_status` or `metric=docking_status` when `kind=status`.
@@ -65,15 +65,15 @@ For `kind=telemetry`, `metric` represents the telemetry channel name (`battery`,
 - `payload` (required): object
 For `kind=status`, backend **upserts** `uav_status` or `docking_status` and updates `last_heartbeat`.
 For UAV status, connectivity/activity should be inferred from `last_heartbeat`; `is_connected` is no longer stored.
-For `metric=uav_status`, `drone_id` should be the UAV `id` or `serial_number`.
+For `metric=uav_status`, `uav_id` must be the UAV `id`.
 For `metric=docking_status`, the backend updates the docking tied to the device token.
-If you use a UAV token/JWT, send `docking_id` (must belong to `drone_id`) to target a specific docking; otherwise it falls back to the primary active docking.
+If you use a UAV token/JWT, send `docking_id` (must belong to `uav_id`) to target a specific docking; otherwise it falls back to the primary active docking.
 
 ### WebSocket Message Mapping
 When the backend accepts ingestion, it emits:
 ```json
 {
-  "drone_id": "DRN-001",
+  "uav_id": 2,
   "kind": "telemetry",
   "metric": "battery",
   "ts": "2026-02-05T10:00:00Z",
@@ -87,7 +87,7 @@ When the backend accepts ingestion, it emits:
 For status:
 ```json
 {
-  "drone_id": "3",
+  "uav_id": 3,
   "kind": "status",
   "metric": "uav_status",
   "ts": "2026-02-05T10:01:00Z",
@@ -104,6 +104,37 @@ For status:
 
 ### WebSocket Endpoint
 - `GET /ws/telemetry`
+
+After the connection is open, clients can send:
+
+```json
+{
+  "type": "subscribe",
+  "uav_ids": [2, 3]
+}
+```
+
+to receive updates for those UAV IDs.
+
+Clients can also publish realtime telemetry directly over the same WebSocket connection:
+
+```json
+{
+  "type": "publish",
+  "uav_id": 2,
+  "kind": "telemetry",
+  "metric": "battery",
+  "payload": {
+    "percent": 78.2,
+    "voltage": 15.6
+  }
+}
+```
+
+Notes:
+- `type=publish` currently supports only `kind=telemetry`
+- if `kind` is omitted, backend treats it as `telemetry`
+- status updates (`uav_status`, `docking_status`) still go through `POST /realtime/telemetry`
 
 ### Auth (JWT or Device Token)
 All API endpoints (except `/auth/login`) accept either:
@@ -278,10 +309,10 @@ After connecting, the client sends:
 ```json
 {
   "type": "subscribe",
-  "drones": ["DRN-001", "DRN-002"]
+  "uav_ids": [2, 3]
 }
 ```
-The backend will only push data for drones in this list.
+The backend will only push data for UAVs in this list.
 
 ### End-to-End Example
 
@@ -291,7 +322,7 @@ curl -X POST http://127.0.0.1:8080/realtime/telemetry \
   -H "Content-Type: application/json" \
   -H "X-Device-Token: <DEVICE_TOKEN>" \
   -d '{
-    "drone_id":"DRN-001",
+    "uav_id":2,
     "kind":"status",
     "metric":"docking_status",
     "payload":{"is_online":false}
@@ -300,13 +331,13 @@ curl -X POST http://127.0.0.1:8080/realtime/telemetry \
 
 **2) WS Subscribe**
 ```json
-{"type":"subscribe","drones":["DRN-001"]}
+{"type":"subscribe","uav_ids":[2]}
 ```
 
 **3) WS Receive**
 ```json
 {
-  "drone_id": "DRN-001",
+  "uav_id": 2,
   "kind": "status",
   "metric": "docking_status",
   "ts": "2026-02-04T06:25:48.885371Z",

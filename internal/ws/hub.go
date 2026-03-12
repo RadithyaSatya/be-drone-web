@@ -13,7 +13,7 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	broadcast  chan *telemetry.Message
-	subs       map[*Client]map[string]struct{}
+	subs       map[*Client]map[int]struct{}
 	mu         sync.RWMutex
 }
 
@@ -23,67 +23,67 @@ func NewHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		broadcast:  make(chan *telemetry.Message, 256),
-		subs:       make(map[*Client]map[string]struct{}),
+		subs:       make(map[*Client]map[int]struct{}),
 	}
 }
 
 func (h *Hub) Run() {
 	for {
 		select {
-	case client := <-h.register:
-		h.clients[client] = struct{}{}
-		h.mu.Lock()
-		h.subs[client] = make(map[string]struct{})
-		h.mu.Unlock()
-	case client := <-h.unregister:
-		if _, ok := h.clients[client]; ok {
-			delete(h.clients, client)
+		case client := <-h.register:
+			h.clients[client] = struct{}{}
 			h.mu.Lock()
-			delete(h.subs, client)
+			h.subs[client] = make(map[int]struct{})
 			h.mu.Unlock()
-			close(client.send)
-			_ = client.conn.Close()
-		}
-	case msg := <-h.broadcast:
-		h.mu.Lock()
-		for client := range h.clients {
-			if !h.clientSubscribedTo(client, msg.DroneID) {
-				continue
+		case client := <-h.unregister:
+			if _, ok := h.clients[client]; ok {
+				delete(h.clients, client)
+				h.mu.Lock()
+				delete(h.subs, client)
+				h.mu.Unlock()
+				close(client.send)
+				_ = client.conn.Close()
 			}
+		case msg := <-h.broadcast:
+			h.mu.Lock()
+			for client := range h.clients {
+				if !h.clientSubscribedTo(client, msg.UavID) {
+					continue
+				}
 				data, err := json.Marshal(msg)
 				if err != nil {
 					log.Printf("ws: marshal telemetry: %v", err)
 					continue
 				}
-			select {
-			case client.send <- data:
-			default:
-				delete(h.clients, client)
-				delete(h.subs, client)
-				close(client.send)
-				_ = client.conn.Close()
+				select {
+				case client.send <- data:
+				default:
+					delete(h.clients, client)
+					delete(h.subs, client)
+					close(client.send)
+					_ = client.conn.Close()
+				}
 			}
+			h.mu.Unlock()
 		}
-		h.mu.Unlock()
 	}
 }
-}
 
-func (h *Hub) clientSubscribedTo(client *Client, droneID string) bool {
+func (h *Hub) clientSubscribedTo(client *Client, uavID int) bool {
 	set, ok := h.subs[client]
 	if !ok {
 		return false
 	}
-	_, subscribed := set[droneID]
+	_, subscribed := set[uavID]
 	return subscribed
 }
 
-func (h *Hub) SetSubscriptions(client *Client, droneIDs []string) {
+func (h *Hub) SetSubscriptions(client *Client, uavIDs []int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	set := make(map[string]struct{}, len(droneIDs))
-	for _, id := range droneIDs {
-		if id == "" {
+	set := make(map[int]struct{}, len(uavIDs))
+	for _, id := range uavIDs {
+		if id <= 0 {
 			continue
 		}
 		set[id] = struct{}{}

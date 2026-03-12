@@ -8,7 +8,7 @@ const (
 )
 
 type Message struct {
-	DroneID   string      `json:"drone_id"`
+	UavID     int         `json:"uav_id"`
 	Kind      string      `json:"kind"`
 	Metric    string      `json:"metric"`
 	Timestamp time.Time   `json:"ts"`

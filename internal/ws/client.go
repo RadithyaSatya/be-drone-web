@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
+
+	"xflight-backend/internal/telemetry"
 
 	"github.com/gorilla/websocket"
 )
@@ -16,15 +19,19 @@ type Client struct {
 }
 
 type subscribeMessage struct {
-	Type   string   `json:"type"`
-	Drones []string `json:"drones"`
+	Type    string                 `json:"type"`
+	UavIDs  []int                  `json:"uav_ids"`
+	UavID   int                    `json:"uav_id"`
+	Kind    string                 `json:"kind"`
+	Metric  string                 `json:"metric"`
+	Payload map[string]interface{} `json:"payload"`
 }
 
 const (
 	writeWait  = 10 * time.Second
 	pongWait   = 60 * time.Second
 	pingPeriod = (pongWait * 9) / 10
-	maxSize    = 1024
+	maxSize    = 64 * 1024
 )
 
 var upgrader = websocket.Upgrader{
@@ -54,11 +61,48 @@ func (c *Client) readPump() {
 			log.Printf("ws: invalid message: %v", err)
 			continue
 		}
-		if req.Type != "subscribe" {
-			continue
+		switch strings.ToLower(strings.TrimSpace(req.Type)) {
+		case "subscribe":
+			c.hub.SetSubscriptions(c, req.UavIDs)
+		case "publish":
+			c.publishTelemetry(req)
+		default:
+			log.Printf("ws: unsupported message type %q", req.Type)
 		}
-		c.hub.SetSubscriptions(c, req.Drones)
 	}
+}
+
+func (c *Client) publishTelemetry(req subscribeMessage) {
+	metric := strings.TrimSpace(req.Metric)
+	kind := strings.TrimSpace(req.Kind)
+
+	if req.UavID <= 0 {
+		log.Printf("ws: publish rejected: missing uav_id")
+		return
+	}
+	if metric == "" {
+		log.Printf("ws: publish rejected: missing metric")
+		return
+	}
+	if req.Payload == nil {
+		log.Printf("ws: publish rejected: missing payload")
+		return
+	}
+	if kind == "" {
+		kind = telemetry.KindTelemetry
+	}
+	if kind != telemetry.KindTelemetry {
+		log.Printf("ws: publish rejected: unsupported kind %q", kind)
+		return
+	}
+
+	c.hub.Broadcast(&telemetry.Message{
+		UavID:     req.UavID,
+		Kind:      telemetry.KindTelemetry,
+		Metric:    metric,
+		Timestamp: time.Now().UTC(),
+		Payload:   req.Payload,
+	})
 }
 
 func (c *Client) writePump() {
