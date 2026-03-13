@@ -15,6 +15,16 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ
 );
 
+-- Seed user credentials:
+-- username: user
+-- password: password
+INSERT INTO users (email, username, password_hash)
+VALUES (
+    'user@example.com',
+    'user',
+    'sha256:736565642d75736572:f40727e322134905e2bf8777369c5a6ca16b70d42d26f1073340ba6e7932d132'
+);
+
 -- =========================================================
 -- FAILURE_CODE
 -- =========================================================

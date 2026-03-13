@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"log"
 	"net/http"
 )
 
@@ -26,7 +27,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		http.Error(w, "failed to upgrade websocket", http.StatusBadRequest)
+		log.Printf("ws: upgrade failed remote=%s path=%s err=%v", r.RemoteAddr, r.URL.RequestURI(), err)
 		return
 	}
 	client := &Client{
