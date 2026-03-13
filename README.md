@@ -29,21 +29,117 @@ Import the Postman collection to analyze and test all of the available endpoints
 
 ---
 
-## ⚡ Realtime Telemetry (HTTP → WebSocket)
+## ⚡ Realtime Telemetry (HTTP -> WebSocket)
 
-**Goal**: Device gateways/services send realtime telemetry to backend via HTTP or WebSocket, and the backend forwards it to subscribed frontend clients via WebSocket.
+**Goal**: device services, gateways, or drones send realtime data to the backend, and the backend forwards that data to frontend clients over WebSocket.
 
-### Data Flow (short)
-1. A producer sends telemetry to `POST /realtime/telemetry` or publishes it on `/ws/telemetry`.
-2. Backend validates and normalizes the request body.
-3. Backend pushes the message to WS clients subscribed to the same `uav_id`.
-4. Frontend receives realtime updates on `/ws/telemetry`.
+### Realtime Architecture
 
-### HTTP Ingestion Contract
-Endpoint:
-- `POST /realtime/telemetry`
+There is only one realtime WebSocket endpoint:
+- `GET /ws/telemetry`
 
-Request JSON:
+All realtime messages flow through that endpoint. The backend does not expose separate WebSocket topics or rooms. Instead, each client sends a `subscribe` message with one or more `uav_id` values, and the backend only forwards events whose `uav_id` matches that subscription list.
+
+In short:
+1. A producer sends data by HTTP `POST /realtime/telemetry` or by WebSocket `type=publish`.
+2. The backend validates and normalizes the message.
+3. The backend pushes the message into the realtime hub.
+4. The hub forwards the message to WS clients subscribed to the same `uav_id`.
+
+### Who Usually Uses Which Flow
+
+- **Frontend dashboard**: usually `connect -> subscribe -> receive`
+- **Drone or gateway that only sends telemetry**: usually `connect -> publish`
+- **Client that both sends and listens**: `connect -> subscribe -> publish`
+
+Important:
+- A publisher-only WebSocket client does **not** need to send `subscribe` first.
+- A subscriber-only client does **not** need to send `publish`.
+- Subscription filtering is based on `uav_id` only, not by `metric`.
+
+### Authentication Flow
+
+All normal API endpoints except `/auth/login` accept one of these:
+```text
+Authorization: Bearer <JWT>
+```
+or
+```text
+X-Device-Token: <DEVICE_TOKEN>
+```
+
+WebSocket authentication works differently:
+1. Authenticate first with JWT or device token.
+2. Request a short-lived WS token from `POST /auth/ws-token`.
+3. Open the socket with `GET /ws/telemetry?token=<WS_TOKEN>`.
+
+Notes:
+- The WS token is a JWT with audience `ws`.
+- Default WS token TTL is `120` seconds, configurable by `WS_TOKEN_TTL_SECONDS`.
+- Device tokens are stored in `device_tokens` and scoped to either a UAV or a docking.
+- Store device tokens as `SHA256(<token> + DEVICE_TOKEN_PEPPER)` in `device_tokens.token_hash`.
+
+### End-to-End Flow
+
+#### 1. Subscriber-only flow
+
+Use this for frontend screens that only need to receive updates.
+
+1. Call `POST /auth/login` or authenticate with a device token.
+2. Call `POST /auth/ws-token`.
+3. Connect to `GET /ws/telemetry?token=<WS_TOKEN>`.
+4. Send a subscribe message:
+
+```json
+{
+  "type": "subscribe",
+  "uav_ids": [2, 3]
+}
+```
+
+5. Receive all realtime messages for UAV `2` and `3`.
+
+Behavior notes:
+- If you never send `subscribe`, the connection stays open but receives no realtime events.
+- Sending `subscribe` again replaces the previous list. It does not append to it.
+- Invalid or non-positive `uav_id` values are ignored.
+
+#### 2. Publisher-only flow
+
+Use this for drones or gateways that only need to send telemetry.
+
+1. Authenticate and request `POST /auth/ws-token`.
+2. Connect to `GET /ws/telemetry?token=<WS_TOKEN>`.
+3. Send publish messages immediately. No `subscribe` message is required.
+
+Example:
+```json
+{
+  "type": "publish",
+  "uav_id": 2,
+  "kind": "telemetry",
+  "metric": "battery",
+  "payload": {
+    "percent": 78.2,
+    "voltage": 15.6
+  }
+}
+```
+
+Behavior notes:
+- `type=publish` over WebSocket currently supports only `kind=telemetry`.
+- If `kind` is omitted, the backend treats it as `telemetry`.
+- Status messages such as `uav_status` or `docking_status` must still use `POST /realtime/telemetry`.
+
+#### 3. HTTP ingestion -> WebSocket fanout flow
+
+Use this when devices prefer HTTP for sending data and frontend still needs realtime updates.
+
+1. Device sends `POST /realtime/telemetry`.
+2. Backend validates the payload.
+3. Backend broadcasts the resulting message to matching WS subscribers.
+
+This is the standard request body:
 ```json
 {
   "uav_id": 2,
@@ -56,21 +152,63 @@ Request JSON:
 }
 ```
 
-Fields:
+Field meanings:
 - `uav_id` (required): UAV primary key from table `uav`
 - `kind` (required): `telemetry` or `status`
-- `metric` (required)
-Use `metric=uav_status` or `metric=docking_status` when `kind=status`.
-For `kind=telemetry`, `metric` represents the telemetry channel name (`battery`, `location`, `imu`, etc.).
-- `payload` (required): object
-For `kind=status`, backend **upserts** `uav_status` or `docking_status` and updates `last_heartbeat`.
-For UAV status, connectivity/activity should be inferred from `last_heartbeat`; `is_connected` is no longer stored.
-For `metric=uav_status`, `uav_id` must be the UAV `id`.
-For `metric=docking_status`, the backend updates the docking tied to the device token.
-If you use a UAV token/JWT, send `docking_id` (must belong to `uav_id`) to target a specific docking; otherwise it falls back to the primary active docking.
+- `metric` (required):
+  - for `kind=telemetry`, this is the telemetry channel name such as `battery`, `location`, or `imu`
+  - for `kind=status`, use `uav_status` or `docking_status`
+- `payload` (required): JSON object containing channel-specific data
 
-### WebSocket Message Mapping
-When the backend accepts ingestion, it emits:
+Behavior notes:
+- For `kind=telemetry`, the backend broadcasts the message and does not persist the telemetry payload to the database.
+- For `kind=status`, the backend upserts `uav_status` or `docking_status`, updates `last_heartbeat`, then broadcasts the resulting status snapshot.
+- For `metric=uav_status`, `uav_id` must be the UAV `id`.
+- For `metric=docking_status`, the backend resolves which docking row to update:
+  - with a docking-scoped device token, it updates that docking
+  - with a UAV-scoped token or owner JWT, include `docking_id` in `payload` to target a specific docking for that UAV
+  - if `docking_id` is omitted, the backend falls back to the primary active docking for that UAV
+
+### WebSocket Client Messages
+
+After the WebSocket is open, the backend expects JSON messages from the client.
+
+#### Subscribe message
+
+```json
+{
+  "type": "subscribe",
+  "uav_ids": [2, 3]
+}
+```
+
+Meaning:
+- Start receiving every realtime message for UAV `2` and `3`
+- Replace any previous subscription list for this connection
+
+#### Publish message
+
+```json
+{
+  "type": "publish",
+  "uav_id": 2,
+  "kind": "telemetry",
+  "metric": "battery",
+  "payload": {
+    "percent": 78.2,
+    "voltage": 15.6
+  }
+}
+```
+
+Meaning:
+- Push one realtime telemetry event into the backend hub
+- The backend fans it out to subscribers of that `uav_id`
+
+### Message Format Sent to WebSocket Subscribers
+
+Every realtime event sent by the backend follows this shape:
+
 ```json
 {
   "uav_id": 2,
@@ -84,7 +222,8 @@ When the backend accepts ingestion, it emits:
 }
 ```
 
-For status:
+Status messages use the same envelope:
+
 ```json
 {
   "uav_id": 3,
@@ -100,64 +239,37 @@ For status:
 }
 ```
 
-`metric` identifies the status type or telemetry channel.
+Envelope fields:
+- `uav_id`: the UAV this event belongs to
+- `kind`: `telemetry` or `status`
+- `metric`: the channel name or status type
+- `ts`: server-side UTC timestamp when the event was emitted
+- `payload`: event-specific JSON object
 
-### WebSocket Endpoint
-- `GET /ws/telemetry`
+### Delivery Rules and Current Behavior
 
-After the connection is open, clients can send:
+- One WS endpoint serves all realtime traffic: `/ws/telemetry`
+- Event routing is filtered by `uav_id` only
+- Subscribing to a UAV means receiving all metrics and all status events for that UAV
+- Publisher-only clients can publish immediately after the socket opens
+- There is no success acknowledgement frame for `subscribe` or `publish`
+- Invalid WS messages are ignored and logged server-side
+- `publish` over WS supports only telemetry, not status
+- Telemetry and status can both be broadcast to subscribers
+- Telemetry is not stored by the realtime handler; status is upserted before broadcast
 
-```json
-{
-  "type": "subscribe",
-  "uav_ids": [2, 3]
-}
-```
+### Connection Lifecycle Notes
 
-to receive updates for those UAV IDs.
-
-Clients can also publish realtime telemetry directly over the same WebSocket connection:
-
-```json
-{
-  "type": "publish",
-  "uav_id": 2,
-  "kind": "telemetry",
-  "metric": "battery",
-  "payload": {
-    "percent": 78.2,
-    "voltage": 15.6
-  }
-}
-```
-
-Notes:
-- `type=publish` currently supports only `kind=telemetry`
-- if `kind` is omitted, backend treats it as `telemetry`
-- status updates (`uav_status`, `docking_status`) still go through `POST /realtime/telemetry`
-
-### Auth (JWT or Device Token)
-All API endpoints (except `/auth/login`) accept either:
-```
-Authorization: Bearer <JWT>
-```
-or
-```
-X-Device-Token: <DEVICE_TOKEN>
-```
-
-WS clients must authenticate with:
-- `?token=<WS_TOKEN>` query param where `WS_TOKEN` is issued by `POST /auth/ws-token`
-
-Device tokens are stored in `device_tokens` and scoped to either a UAV or a docking.
-Each request uses the per-device token in `X-Device-Token` (not a global shared token).
-Provisioning: store `SHA256(<token> + DEVICE_TOKEN_PEPPER)` (hex) in `device_tokens.token_hash` with the correct scope.
+- The backend sends periodic WebSocket ping frames to keep the connection alive
+- Maximum inbound WS message size is `64 KB`
+- Each client connection has a bounded outbound buffer; if the client is too slow, the backend may close the connection
+- Reconnect logic should be implemented client-side
 
 ### Device Tokens (per device)
 - `POST /device-tokens/uav/{uav_id}` generates a token scoped to a UAV.
 - `POST /device-tokens/docking/{docking_id}` generates a token scoped to a docking.
-Both return the token **once** and revoke any previous token for the same scope.
-Tokens do not expire automatically. Use owner JWT to call these endpoints.
+- Both return the token **once** and revoke any previous token for the same scope.
+- Tokens do not expire automatically. Use owner JWT to call these endpoints.
 
 ### Login (JWT issuer, users table)
 - `POST /auth/login`
