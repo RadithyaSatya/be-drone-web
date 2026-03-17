@@ -42,9 +42,18 @@ type assignUavRequest struct {
 }
 
 type uavDropdownItem struct {
-	ID         int     `json:"id"`
-	Name       *string `json:"name"`
-	CameraSpec *string `json:"camera_spec"`
+	ID             int                     `json:"id"`
+	Name           *string                 `json:"name"`
+	CameraSpec     *string                 `json:"camera_spec"`
+	PrimaryDocking *uavDropdownDockingItem `json:"primary_docking,omitempty"`
+}
+
+type uavDropdownDockingItem struct {
+	ID           int      `json:"id"`
+	Name         *string  `json:"name"`
+	LocationName *string  `json:"location_name"`
+	Latitude     *float64 `json:"latitude"`
+	Longitude    *float64 `json:"longitude"`
 }
 
 type rowScanner interface {
@@ -178,10 +187,18 @@ func (h *Handlers) ListMyUAVDropdown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(`
-		SELECT id, name, camera_spec
-		FROM uav
-		WHERE deleted_at IS NULL AND owner_id = $1
-		ORDER BY created_at DESC`, userID)
+		SELECT u.id, u.name, u.camera_spec,
+		       d.id, d.name, d.location_name, d.latitude, d.longitude
+		FROM uav u
+		LEFT JOIN LATERAL (
+			SELECT id, name, location_name, latitude, longitude
+			FROM docking
+			WHERE uav_id = u.id AND is_active = true
+			ORDER BY is_primary DESC, created_at DESC
+			LIMIT 1
+		) d ON true
+		WHERE u.deleted_at IS NULL AND u.owner_id = $1
+		ORDER BY u.created_at DESC`, userID)
 	if err != nil {
 		log.Printf("Error querying UAV dropdown for user %d: %v", userID, err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load UAVs"})
@@ -194,7 +211,21 @@ func (h *Handlers) ListMyUAVDropdown(w http.ResponseWriter, r *http.Request) {
 		var item uavDropdownItem
 		var name sql.NullString
 		var camera sql.NullString
-		if err := rows.Scan(&item.ID, &name, &camera); err != nil {
+		var dockingID sql.NullInt32
+		var dockingName sql.NullString
+		var dockingLocation sql.NullString
+		var dockingLatitude sql.NullFloat64
+		var dockingLongitude sql.NullFloat64
+		if err := rows.Scan(
+			&item.ID,
+			&name,
+			&camera,
+			&dockingID,
+			&dockingName,
+			&dockingLocation,
+			&dockingLatitude,
+			&dockingLongitude,
+		); err != nil {
 			log.Printf("Error scanning UAV dropdown for user %d: %v", userID, err)
 			continue
 		}
@@ -205,6 +236,28 @@ func (h *Handlers) ListMyUAVDropdown(w http.ResponseWriter, r *http.Request) {
 		if camera.Valid {
 			value := camera.String
 			item.CameraSpec = &value
+		}
+		if dockingID.Valid {
+			docking := &uavDropdownDockingItem{
+				ID: int(dockingID.Int32),
+			}
+			if dockingName.Valid {
+				value := dockingName.String
+				docking.Name = &value
+			}
+			if dockingLocation.Valid {
+				value := dockingLocation.String
+				docking.LocationName = &value
+			}
+			if dockingLatitude.Valid {
+				value := dockingLatitude.Float64
+				docking.Latitude = &value
+			}
+			if dockingLongitude.Valid {
+				value := dockingLongitude.Float64
+				docking.Longitude = &value
+			}
+			item.PrimaryDocking = docking
 		}
 		items = append(items, item)
 	}

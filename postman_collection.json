@@ -463,7 +463,7 @@
                             ]
                         }
                     },
-                    "description": "List current user's UAVs for dropdown (id, name, camera_spec)."
+                    "description": "List current user's UAVs for dropdown. Each item returns id, name, camera_spec, and optional primary_docking (id, name, location_name, latitude, longitude) resolved from the primary active docking."
                 },
                 {
                     "name": "Get UAV By ID",
@@ -770,6 +770,48 @@
                         }
                     },
                     "description": "Create a device token scoped to a docking. Returns token once (replaces previous token)."
+                },
+                {
+                    "name": "Get Device Context",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/device-context",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "device-context"
+                            ]
+                        }
+                    },
+                    "description": "Returns the identity derived from X-Device-Token. Use this as a startup/bootstrap call so device services can discover scope_type, docking_id, and resolved_uav_id without hardcoding IDs.",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const data = pm.response.json();",
+                                    "if (data && data.uav_id) {",
+                                    "  pm.collectionVariables.set('uavId', data.uav_id);",
+                                    "}",
+                                    "if (data && data.docking_id) {",
+                                    "  pm.collectionVariables.set('dockingId', data.docking_id);",
+                                    "}",
+                                    "if (data && data.resolved_uav_id) {",
+                                    "  pm.collectionVariables.set('resolvedUavId', data.resolved_uav_id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
                 }
             ]
         },
@@ -819,7 +861,7 @@
                             }
                         ],
                         "url": {
-                            "raw": "{{baseUrl}}/missions/me?page={{page}}&limit={{limit}}&uav_id={{uavId}}",
+                            "raw": "{{baseUrl}}/missions/me?page={{page}}&limit={{limit}}&uav_id={{uavId}}&date={{missionDate}}",
                             "host": [
                                 "{{baseUrl}}"
                             ],
@@ -840,11 +882,16 @@
                                     "key": "uav_id",
                                     "value": "{{uavId}}",
                                     "disabled": true
+                                },
+                                {
+                                    "key": "date",
+                                    "value": "{{missionDate}}",
+                                    "disabled": true
                                 }
                             ]
                         }
                     },
-                    "description": "Returns missions for the authenticated user (paginated). Optional uav_id filter. Includes waypoint_count and uav details; waypoints are not returned."
+                    "description": "Returns missions for the authenticated user (paginated). Optional `uav_id` filter and optional exact `date` filter (`YYYY-MM-DD`, matched against the schedule date prefix). Includes waypoint_count and uav details; waypoints are not returned."
                 },
                 {
                     "name": "Get Mission By ID",
@@ -871,7 +918,62 @@
                                 "{{missionId}}"
                             ]
                         }
-                    }
+                    },
+                    "description": "Returns one mission by ID, including its full waypoint list."
+                },
+                {
+                    "name": "Update Mission",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"mission_name\": \"Test Mission Updated\",\n  \"schedule\": \"2026-03-14T12:00:00Z\",\n  \"is_recurring\": true,\n  \"recurrence_unit\": \"hour\",\n  \"recurrence_interval\": 6,\n  \"status\": \"Waiting\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 20.0,\n      \"action\": \"hold\",\n      \"action_duration\": 10\n    }\n  ]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/{{missionId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "{{missionId}}"
+                            ]
+                        }
+                    },
+                    "description": "Updates a mission. Send only fields to change. If `waypoints` is provided, all existing waypoints are replaced. Rejected with 409 if the mission has an active run."
+                },
+                {
+                    "name": "Delete Mission",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/{{missionId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "{{missionId}}"
+                            ]
+                        }
+                    },
+                    "description": "Soft-deletes a mission. Rejected with 409 if the mission has an active run."
                 },
                 {
                     "name": "Register Mission",
@@ -894,7 +996,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"mission_name\": \"Test Mission\",\n  \"schedule\": \"2025-01-01T00:00:00Z\",\n  \"is_recurring\": false,\n  \"status\": \"Scheduled\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 10.0,\n      \"action\": \"hold\",\n      \"action_duration\": 5\n    }\n  ]\n}"
+                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"mission_name\": \"Test Mission\",\n  \"schedule\": \"2026-03-14T08:00:00Z\",\n  \"is_recurring\": true,\n  \"recurrence_unit\": \"hour\",\n  \"recurrence_interval\": 4,\n  \"status\": \"Waiting\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 10.0,\n      \"action\": \"hold\",\n      \"action_duration\": 5\n    }\n  ]\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/register-mission",
@@ -905,7 +1007,7 @@
                                 "register-mission"
                             ]
                         },
-                        "description": "Creates mission for the authenticated user. user_id is inferred from JWT."
+                        "description": "Creates mission for the authenticated user. user_id is inferred from JWT. Recurring missions may include `recurrence_unit` (`hour` or `day`) and `recurrence_interval` (> 0). If `is_recurring=true` and those fields are omitted, the backend falls back to daily recurrence every 1 day."
                     }
                 },
                 {
@@ -944,33 +1046,66 @@
                     }
                 },
                 {
-                    "name": "Get Next Mission (By User)",
+                    "name": "Get Waiting Mission (Docking / Device)",
                     "request": {
                         "method": "GET",
                         "header": [
                             {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
                                 "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
+                                "value": "{{deviceToken}}"
                             }
                         ],
                         "url": {
-                            "raw": "{{baseUrl}}/missions/next/{{userId}}",
+                            "raw": "{{baseUrl}}/missions/waiting/device",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
                                 "missions",
-                                "next",
-                                "{{userId}}"
+                                "waiting",
+                                "device"
                             ]
                         }
                     },
-                    "description": "Returns the nearest upcoming mission with status Waiting for the user (schedule >= now), including waypoints."
+                    "description": "Returns the nearest upcoming mission with status Waiting for the authenticated device. The backend derives the UAV from X-Device-Token (UAV token directly, docking token via docking->UAV mapping). Mission responses also include optional recurrence_unit and recurrence_interval."
+                },
+                {
+                    "name": "Get SafeToFly Mission (Drone / Device)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/missions/safe-to-fly/device",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "missions",
+                                "safe-to-fly",
+                                "device"
+                            ]
+                        }
+                    },
+                    "description": "Returns the active mission run whose runtime status is SafeToFly for the authenticated device. The backend derives the UAV from X-Device-Token. Response keeps the same mission fields and waypoint list as the next-mission flow, plus history_id and runtime_status.",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const data = pm.response.json();",
+                                    "if (data && data.history_id) {",
+                                    "  pm.collectionVariables.set('historyId', data.history_id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
                 },
                 {
                     "name": "Start Mission",
@@ -1002,7 +1137,7 @@
                                 "start"
                             ]
                         },
-                        "description": "Starts a mission run and returns history_id."
+                        "description": "Starts a mission run and returns history_id. The new mission_history row begins at status PreparingDock."
                     },
                     "event": [
                         {
@@ -1065,7 +1200,183 @@
                                 }
                             ]
                         },
-                        "description": "List mission history entries for the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page). Optional `mission_id` to filter by mission."
+                        "description": "List mission history entries for the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page). Optional `mission_id` to filter by mission. Each item also includes `media_count` so the client can show the number of uploaded files for that run."
+                    }
+                },
+                {
+                    "name": "List Mission Media",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/media?event_id={{eventId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-history",
+                                "{{historyId}}",
+                                "media"
+                            ],
+                            "query": [
+                                {
+                                    "key": "event_id",
+                                    "value": "{{eventId}}",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Lists media files attached to one mission run. Optional `event_id` filters media attached to one mission_event."
+                    }
+                },
+                {
+                    "name": "List Mission Events",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/events",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-history",
+                                "{{historyId}}",
+                                "events"
+                            ]
+                        }
+                    },
+                    "description": "Lists the event timeline for one mission run, including from_state, to_state, result, failure_code, message, is_terminal, and created_at."
+                },
+                {
+                    "name": "Get Mission State",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/state",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-history",
+                                "{{historyId}}",
+                                "state"
+                            ]
+                        }
+                    },
+                    "description": "Returns the latest persisted runtime state for one mission run, including status, terminal flag, failure details, completed_at, and last_event_at."
+                },
+                {
+                    "name": "Upload Mission Media",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            }
+                        ],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "event_id",
+                                    "value": "{{eventId}}",
+                                    "type": "text",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "files",
+                                    "type": "file",
+                                    "src": ""
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/media",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-history",
+                                "{{historyId}}",
+                                "media"
+                            ]
+                        },
+                        "description": "Uploads one or more image/video files to a mission run. Use repeated `files` fields for multi-file upload. Optional `event_id` links the files to a specific mission_event."
+                    }
+                },
+                {
+                    "name": "Update Mission State",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"SafeToFly\",\n  \"message\": \"Dock prepared and launch area clear\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/state",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-history",
+                                "{{historyId}}",
+                                "state"
+                            ]
+                        },
+                        "description": "Updates the runtime state of a mission run. Valid normal flow: PreparingDock -> SafeToFly -> Takeoff -> DockConfirmed, with optional Takeoff -> InFlight -> DockConfirmed when the drone still has connectivity. Any non-terminal state may also move to Failed or Aborted."
                     }
                 },
                 {
@@ -1098,7 +1409,7 @@
                                 "complete"
                             ]
                         },
-                        "description": "Completes a mission run using history_id from /missions/{id}/start."
+                        "description": "Completes a mission run using history_id from /missions/{id}/start. This endpoint expects the current mission_history status to be DockConfirmed. For recurring missions, the backend sets mission_status back to Waiting and recalculates the next schedule using recurrence_unit/recurrence_interval."
                     }
                 }
             ]
@@ -1279,7 +1590,7 @@
                             ]
                         }
                     },
-                    "description": "Upsert docking status via realtime ingestion (kind=status, metric=docking_status). Requires docking device token; optionally include `docking_id` if using UAV token/JWT."
+                    "description": "Upsert docking status via realtime ingestion (kind=status, metric=docking_status). Requires docking device token; optionally include `docking_id` if using UAV token/JWT. If your docking service still needs IDs locally, call GET /device-context once at startup and reuse the returned docking_id / resolved_uav_id."
                 },
                 {
                     "name": "WebSocket Telemetry",
@@ -1339,72 +1650,9 @@
                     }
                 },
                 {
-                    "name": "Upload Media (Image/Video)",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "body": {
-                            "mode": "formdata",
-                            "formdata": [
-                                {
-                                    "key": "uav_id",
-                                    "value": "{{uavId}}",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "mission_id",
-                                    "value": "{{missionId}}",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "history_id",
-                                    "value": "{{historyId}}",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "file",
-                                    "type": "file",
-                                    "src": ""
-                                }
-                            ]
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/upload-footage",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "upload-footage"
-                            ]
-                        },
-                        "description": "Upload image or video. If mission_id is provided, history_id must also be provided and the media will be attached to that mission_history entry."
-                    }
-                },
-                {
                     "name": "Get Footage File",
                     "request": {
                         "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
                         "url": {
                             "raw": "{{baseUrl}}/footages/{{footageFile}}",
                             "host": [
@@ -1416,7 +1664,25 @@
                             ]
                         }
                     },
-                    "description": "Fetch uploaded media by filename. Requires auth. Example: use file_path from upload response (strip leading ./uploads/footages/)."
+                    "description": "Fetch uploaded media by filename without auth. Use `public_path` from upload/list responses and strip the leading `/footages/` into `{{footageFile}}`."
+                },
+                {
+                    "name": "Download Mission Media",
+                    "request": {
+                        "method": "GET",
+                        "url": {
+                            "raw": "{{baseUrl}}/mission-media/{{mediaId}}/download",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission-media",
+                                "{{mediaId}}",
+                                "download"
+                            ]
+                        }
+                    },
+                    "description": "Download one uploaded mission media file as an attachment without auth. Use `download_path` from upload/list responses or provide `mediaId` directly."
                 }
             ]
         }
@@ -1444,6 +1710,14 @@
         },
         {
             "key": "historyId",
+            "value": ""
+        },
+        {
+            "key": "mediaId",
+            "value": ""
+        },
+        {
+            "key": "eventId",
             "value": ""
         },
         {

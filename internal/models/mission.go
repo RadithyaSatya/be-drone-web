@@ -5,31 +5,35 @@ import (
 )
 
 type Mission struct {
-	ID            int        `json:"id" db:"id"`
-	UserID        int        `json:"user_id" db:"user_id"`
-	UavID         int        `json:"uav_id" db:"uav_id"`
-	MissionName   string     `json:"mission_name" db:"mission_name"`
-	Schedule      string     `json:"schedule" db:"schedule"`
-	IsRecurring   bool       `json:"is_recurring" db:"is_recurring"`
-	Status        string     `json:"status" db:"status"`
-	Timestamp     time.Time  `json:"timestamp" db:"created_at"`
-	DeletedAt     *time.Time `json:"deleted_at" db:"deleted_at"`
-	Waypoints     []Waypoint `json:"waypoints"`
-	WaypointCount *int       `json:"waypoint_count"`
+	ID                 int        `json:"id" db:"id"`
+	UserID             int        `json:"user_id" db:"user_id"`
+	UavID              int        `json:"uav_id" db:"uav_id"`
+	MissionName        string     `json:"mission_name" db:"mission_name"`
+	Schedule           string     `json:"schedule" db:"schedule"`
+	IsRecurring        bool       `json:"is_recurring" db:"is_recurring"`
+	RecurrenceUnit     *string    `json:"recurrence_unit,omitempty" db:"recurrence_unit"`
+	RecurrenceInterval *int       `json:"recurrence_interval,omitempty" db:"recurrence_interval"`
+	Status             string     `json:"status" db:"status"`
+	Timestamp          time.Time  `json:"timestamp" db:"created_at"`
+	DeletedAt          *time.Time `json:"deleted_at" db:"deleted_at"`
+	Waypoints          []Waypoint `json:"waypoints"`
+	WaypointCount      *int       `json:"waypoint_count"`
 }
 
 type MissionListItem struct {
-	ID            int        `json:"id"`
-	UserID        int        `json:"user_id"`
-	UavID         int        `json:"uav_id"`
-	MissionName   string     `json:"mission_name"`
-	Schedule      string     `json:"schedule"`
-	IsRecurring   bool       `json:"is_recurring"`
-	Status        string     `json:"status"`
-	Timestamp     time.Time  `json:"timestamp"`
-	DeletedAt     *time.Time `json:"deleted_at"`
-	WaypointCount *int       `json:"waypoint_count"`
-	Uav           *Uav       `json:"uav"`
+	ID                 int        `json:"id"`
+	UserID             int        `json:"user_id"`
+	UavID              int        `json:"uav_id"`
+	MissionName        string     `json:"mission_name"`
+	Schedule           string     `json:"schedule"`
+	IsRecurring        bool       `json:"is_recurring"`
+	RecurrenceUnit     *string    `json:"recurrence_unit,omitempty"`
+	RecurrenceInterval *int       `json:"recurrence_interval,omitempty"`
+	Status             string     `json:"status"`
+	Timestamp          time.Time  `json:"timestamp"`
+	DeletedAt          *time.Time `json:"deleted_at"`
+	WaypointCount      *int       `json:"waypoint_count"`
+	Uav                *Uav       `json:"uav"`
 }
 
 type MissionListResponse struct {
@@ -56,13 +60,26 @@ type Waypoint struct {
 	ActionDuration *int64 `json:"action_duration"`
 }
 type FullMissionRequest struct {
-	UserID      int        `json:"user_id"`
-	UavID       int        `json:"uav_id"`
-	MissionName string     `json:"mission_name"`
-	Schedule    string     `json:"schedule"`
-	IsRecurring bool       `json:"is_recurring"`
-	Status      string     `json:"status"`
-	Waypoints   []Waypoint `json:"waypoints"`
+	UserID             int        `json:"user_id"`
+	UavID              int        `json:"uav_id"`
+	MissionName        string     `json:"mission_name"`
+	Schedule           string     `json:"schedule"`
+	IsRecurring        bool       `json:"is_recurring"`
+	RecurrenceUnit     *string    `json:"recurrence_unit,omitempty"`
+	RecurrenceInterval *int       `json:"recurrence_interval,omitempty"`
+	Status             string     `json:"status"`
+	Waypoints          []Waypoint `json:"waypoints"`
+}
+
+type UpdateMissionRequest struct {
+	UavID              *int        `json:"uav_id"`
+	MissionName        *string     `json:"mission_name"`
+	Schedule           *string     `json:"schedule"`
+	IsRecurring        *bool       `json:"is_recurring"`
+	RecurrenceUnit     *string     `json:"recurrence_unit,omitempty"`
+	RecurrenceInterval *int        `json:"recurrence_interval,omitempty"`
+	Status             *string     `json:"status"`
+	Waypoints          *[]Waypoint `json:"waypoints"`
 }
 type Location struct {
 	Latitude  float64   `json:"latitude"`

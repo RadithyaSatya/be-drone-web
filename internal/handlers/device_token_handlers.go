@@ -36,6 +36,14 @@ type deviceTokenResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type deviceContextResponse struct {
+	TokenID       int64  `json:"token_id"`
+	ScopeType     string `json:"scope_type"`
+	UavID         *int   `json:"uav_id,omitempty"`
+	DockingID     *int   `json:"docking_id,omitempty"`
+	ResolvedUavID *int   `json:"resolved_uav_id,omitempty"`
+}
+
 func (h *Handlers) CreateUavDeviceToken(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.requireUserID(w, r)
 	if !ok {
@@ -110,6 +118,51 @@ func (h *Handlers) CreateDockingDeviceToken(w http.ResponseWriter, r *http.Reque
 		Message:   "Device token created (previous tokens revoked)",
 		CreatedAt: createdAt,
 	})
+}
+
+func (h *Handlers) GetDeviceContext(w http.ResponseWriter, r *http.Request) {
+	deviceClaims, ok := auth.DeviceClaimsFromContext(r.Context())
+	if !ok || deviceClaims == nil {
+		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "device token required"})
+		return
+	}
+
+	response := deviceContextResponse{
+		TokenID:   deviceClaims.TokenID,
+		ScopeType: deviceClaims.ScopeType,
+		UavID:     deviceClaims.UavID,
+		DockingID: deviceClaims.DockingID,
+	}
+
+	switch deviceClaims.ScopeType {
+	case auth.DeviceScopeUav:
+		if deviceClaims.UavID == nil || *deviceClaims.UavID <= 0 {
+			respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		response.ResolvedUavID = deviceClaims.UavID
+	case auth.DeviceScopeDocking:
+		if deviceClaims.DockingID == nil || *deviceClaims.DockingID <= 0 {
+			respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		uavID, err := h.resolveDockingUavID(*deviceClaims.DockingID)
+		if err != nil {
+			if err.Error() == "docking not found" {
+				respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Docking not found"})
+				return
+			}
+			log.Printf("Failed to resolve device context docking uav_id: %v", err)
+			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error"})
+			return
+		}
+		response.ResolvedUavID = &uavID
+	default:
+		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 func validateNoExpiryRequest(w http.ResponseWriter, r *http.Request) bool {

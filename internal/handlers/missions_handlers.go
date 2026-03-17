@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"xflight-backend/internal/auth"
 	"xflight-backend/internal/models"
 
 	"github.com/gorilla/mux"
@@ -18,7 +19,135 @@ const (
 	defaultMissionPage  = 1
 	defaultMissionLimit = 20
 	maxMissionLimit     = 100
+
+	recurrenceUnitHour = "hour"
+	recurrenceUnitDay  = "day"
 )
+
+type missionLookupResponse struct {
+	models.Mission
+	HistoryID     *int    `json:"history_id,omitempty"`
+	RuntimeStatus *string `json:"runtime_status,omitempty"`
+}
+
+func normalizeMissionRecurrence(isRecurring bool, unit *string, interval *int) (*string, *int, error) {
+	if !isRecurring {
+		return nil, nil, nil
+	}
+
+	normalizedUnit := recurrenceUnitDay
+	if unit != nil && strings.TrimSpace(*unit) != "" {
+		switch strings.ToLower(strings.TrimSpace(*unit)) {
+		case "hour", "hours":
+			normalizedUnit = recurrenceUnitHour
+		case "day", "days":
+			normalizedUnit = recurrenceUnitDay
+		default:
+			return nil, nil, fmt.Errorf("recurrence_unit must be one of: hour, day")
+		}
+	}
+
+	normalizedInterval := 1
+	if interval != nil {
+		if *interval <= 0 {
+			return nil, nil, fmt.Errorf("recurrence_interval must be greater than 0")
+		}
+		normalizedInterval = *interval
+	}
+
+	return &normalizedUnit, &normalizedInterval, nil
+}
+
+func applyMissionRecurrenceDefaults(mission *models.Mission) {
+	if mission == nil || !mission.IsRecurring {
+		mission.RecurrenceUnit = nil
+		mission.RecurrenceInterval = nil
+		return
+	}
+	unit, interval, err := normalizeMissionRecurrence(true, mission.RecurrenceUnit, mission.RecurrenceInterval)
+	if err != nil {
+		return
+	}
+	mission.RecurrenceUnit = unit
+	mission.RecurrenceInterval = interval
+}
+
+func applyMissionListItemRecurrenceDefaults(item *models.MissionListItem) {
+	if item == nil || !item.IsRecurring {
+		item.RecurrenceUnit = nil
+		item.RecurrenceInterval = nil
+		return
+	}
+	unit, interval, err := normalizeMissionRecurrence(true, item.RecurrenceUnit, item.RecurrenceInterval)
+	if err != nil {
+		return
+	}
+	item.RecurrenceUnit = unit
+	item.RecurrenceInterval = interval
+}
+
+func nextRecurringSchedule(raw string, from time.Time, unit string, interval int) (string, bool) {
+	scheduleTime, ok := parseSchedule(raw)
+	if !ok {
+		return "", false
+	}
+
+	nextTime := scheduleTime
+	for !nextTime.After(from) {
+		switch unit {
+		case recurrenceUnitHour:
+			nextTime = nextTime.Add(time.Duration(interval) * time.Hour)
+		case recurrenceUnitDay:
+			nextTime = nextTime.AddDate(0, 0, interval)
+		default:
+			return "", false
+		}
+	}
+
+	return formatScheduleLike(raw, nextTime), true
+}
+
+func assignMissionRecurrence(mission *models.Mission, unit sql.NullString, interval sql.NullInt32) {
+	if unit.Valid {
+		value := unit.String
+		mission.RecurrenceUnit = &value
+	}
+	if interval.Valid {
+		value := int(interval.Int32)
+		mission.RecurrenceInterval = &value
+	}
+	applyMissionRecurrenceDefaults(mission)
+}
+
+func assignMissionListItemRecurrence(item *models.MissionListItem, unit sql.NullString, interval sql.NullInt32) {
+	if unit.Valid {
+		value := unit.String
+		item.RecurrenceUnit = &value
+	}
+	if interval.Valid {
+		value := int(interval.Int32)
+		item.RecurrenceInterval = &value
+	}
+	applyMissionListItemRecurrenceDefaults(item)
+}
+
+func nullableIntPointerValue(value *int) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableStringPointerValue(value *string) interface{} {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
+}
 
 func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.requireUserID(w, r)
@@ -44,6 +173,12 @@ func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recurrenceUnit, recurrenceInterval, err := normalizeMissionRecurrence(req.IsRecurring, req.RecurrenceUnit, req.RecurrenceInterval)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
 	tx, err := h.DB.Begin()
 	if err != nil {
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start transaction"})
@@ -53,8 +188,8 @@ func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 
 	var missionID int
 	missionSQL := `
-		INSERT INTO missions (user_id, uav_id, mission_name, schedule, is_recurring, status, created_at) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`
+		INSERT INTO missions (user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
 
 	err = tx.QueryRow(
 		missionSQL,
@@ -63,6 +198,8 @@ func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 		req.MissionName,
 		req.Schedule,
 		req.IsRecurring,
+		nullableStringPointerValue(recurrenceUnit),
+		nullableIntPointerValue(recurrenceInterval),
 		req.Status,
 		time.Now().UTC(),
 	).Scan(&missionID)
@@ -101,7 +238,7 @@ func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetAllMissions(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(`SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, created_at FROM missions WHERE deleted_at IS NULL ORDER BY created_at DESC`)
+	rows, err := h.DB.Query(`SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at FROM missions WHERE deleted_at IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -111,10 +248,13 @@ func (h *Handlers) GetAllMissions(w http.ResponseWriter, r *http.Request) {
 	missions := []models.Mission{}
 	for rows.Next() {
 		var m models.Mission
-		if err := rows.Scan(&m.ID, &m.UserID, &m.UavID, &m.MissionName, &m.Schedule, &m.IsRecurring, &m.Status, &m.Timestamp); err != nil {
+		var recurrenceUnit sql.NullString
+		var recurrenceInterval sql.NullInt32
+		if err := rows.Scan(&m.ID, &m.UserID, &m.UavID, &m.MissionName, &m.Schedule, &m.IsRecurring, &recurrenceUnit, &recurrenceInterval, &m.Status, &m.Timestamp); err != nil {
 			log.Printf("Error scanning mission: %v", err)
 			continue
 		}
+		assignMissionRecurrence(&m, recurrenceUnit, recurrenceInterval)
 		missions = append(missions, m)
 	}
 
@@ -128,6 +268,7 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 	}
 
 	uavIDStr := r.URL.Query().Get("uav_id")
+	dateStr := strings.TrimSpace(r.URL.Query().Get("date"))
 	page, limit := parsePagination(r, defaultMissionPage, defaultMissionLimit, maxMissionLimit)
 	offset := (page - 1) * limit
 
@@ -138,7 +279,7 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 	countArgs := []interface{}{userID}
 
 	query := `
-        SELECT m.id, m.user_id, m.uav_id, m.mission_name, m.schedule, m.is_recurring, m.status, m.created_at, m.deleted_at,
+        SELECT m.id, m.user_id, m.uav_id, m.mission_name, m.schedule, m.is_recurring, m.recurrence_unit, m.recurrence_interval, m.status, m.created_at, m.deleted_at,
 		       COALESCE(COUNT(w.id), 0) AS waypoint_count,
 			   u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
 			   u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at
@@ -147,6 +288,7 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 		LEFT JOIN uav u ON u.id = m.uav_id
         WHERE m.user_id = $1 AND m.deleted_at IS NULL`
 	args := []interface{}{userID}
+	nextArgIndex := 2
 
 	if uavIDStr != "" {
 		uavID, err := strconv.Atoi(uavIDStr)
@@ -154,14 +296,27 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid UAV ID"})
 			return
 		}
-		query += " AND m.uav_id = $2"
+		query += fmt.Sprintf(" AND m.uav_id = $%d", nextArgIndex)
 		args = append(args, uavID)
-		countQuery += " AND uav_id = $2"
+		countQuery += fmt.Sprintf(" AND uav_id = $%d", nextArgIndex)
 		countArgs = append(countArgs, uavID)
+		nextArgIndex++
+	}
+
+	if dateStr != "" {
+		if _, err := time.Parse("2006-01-02", dateStr); err != nil {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid date. Use YYYY-MM-DD"})
+			return
+		}
+		query += fmt.Sprintf(" AND LEFT(m.schedule, 10) = $%d", nextArgIndex)
+		args = append(args, dateStr)
+		countQuery += fmt.Sprintf(" AND LEFT(schedule, 10) = $%d", nextArgIndex)
+		countArgs = append(countArgs, dateStr)
+		nextArgIndex++
 	}
 
 	query += `
-		GROUP BY m.id, m.user_id, m.uav_id, m.mission_name, m.schedule, m.is_recurring, m.status, m.created_at, m.deleted_at,
+		GROUP BY m.id, m.user_id, m.uav_id, m.mission_name, m.schedule, m.is_recurring, m.recurrence_unit, m.recurrence_interval, m.status, m.created_at, m.deleted_at,
 		         u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
 				 u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at
 		ORDER BY m.created_at DESC
@@ -189,6 +344,8 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 		var m models.MissionListItem
 		var waypointCount int
 		var deletedAt sql.NullTime
+		var recurrenceUnit sql.NullString
+		var recurrenceInterval sql.NullInt32
 
 		var uavID sql.NullInt32
 		var uavSerial sql.NullString
@@ -210,6 +367,8 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 			&m.MissionName,
 			&m.Schedule,
 			&m.IsRecurring,
+			&recurrenceUnit,
+			&recurrenceInterval,
 			&m.Status,
 			&m.Timestamp,
 			&deletedAt,
@@ -231,6 +390,7 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 		m.WaypointCount = &waypointCount
+		assignMissionListItemRecurrence(&m, recurrenceUnit, recurrenceInterval)
 		if deletedAt.Valid {
 			value := deletedAt.Time
 			m.DeletedAt = &value
@@ -314,6 +474,378 @@ func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+type missionMutationContext struct {
+	ID                 int
+	UserID             int
+	UavID              int
+	MissionName        string
+	Schedule           string
+	IsRecurring        bool
+	RecurrenceUnit     *string
+	RecurrenceInterval *int
+	Status             string
+}
+
+func (h *Handlers) loadMissionMutationContext(tx *sql.Tx, missionID int) (*missionMutationContext, error) {
+	var ctx missionMutationContext
+	var recurrenceUnit sql.NullString
+	var recurrenceInterval sql.NullInt32
+	err := tx.QueryRow(`
+		SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status
+		FROM missions
+		WHERE id = $1 AND deleted_at IS NULL`, missionID,
+	).Scan(
+		&ctx.ID,
+		&ctx.UserID,
+		&ctx.UavID,
+		&ctx.MissionName,
+		&ctx.Schedule,
+		&ctx.IsRecurring,
+		&recurrenceUnit,
+		&recurrenceInterval,
+		&ctx.Status,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if recurrenceUnit.Valid {
+		value := recurrenceUnit.String
+		ctx.RecurrenceUnit = &value
+	}
+	if recurrenceInterval.Valid {
+		value := int(recurrenceInterval.Int32)
+		ctx.RecurrenceInterval = &value
+	}
+	return &ctx, nil
+}
+
+func (h *Handlers) ensureMissionMutable(tx *sql.Tx, missionID int) error {
+	var activeHistoryID int
+	err := tx.QueryRow(`
+		SELECT id
+		FROM mission_history
+		WHERE mission_id = $1
+		  AND completed_at IS NULL
+		  AND status NOT IN ('Completed', 'Failed', 'Aborted')
+		ORDER BY created_at DESC
+		LIMIT 1`, missionID,
+	).Scan(&activeHistoryID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("mission is currently in progress")
+}
+
+func (h *Handlers) buildMissionDetail(tx *sql.Tx, missionID int) (models.Mission, error) {
+	var mission models.Mission
+	var recurrenceUnit sql.NullString
+	var recurrenceInterval sql.NullInt32
+	err := tx.QueryRow(`
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
+        FROM missions
+        WHERE id = $1 AND deleted_at IS NULL`, missionID).Scan(
+		&mission.ID,
+		&mission.UserID,
+		&mission.UavID,
+		&mission.MissionName,
+		&mission.Schedule,
+		&mission.IsRecurring,
+		&recurrenceUnit,
+		&recurrenceInterval,
+		&mission.Status,
+		&mission.Timestamp,
+	)
+	if err != nil {
+		return models.Mission{}, err
+	}
+	assignMissionRecurrence(&mission, recurrenceUnit, recurrenceInterval)
+
+	rows, err := tx.Query(`
+        SELECT id, sequence_order, latitude, longitude, altitude, action, action_duration
+        FROM waypoints
+        WHERE mission_id = $1
+        ORDER BY sequence_order ASC`, missionID)
+	if err != nil {
+		return mission, err
+	}
+	defer rows.Close()
+
+	waypoints := []models.Waypoint{}
+	for rows.Next() {
+		var wp models.Waypoint
+		if err := rows.Scan(
+			&wp.ID,
+			&wp.SequenceOrder,
+			&wp.Latitude,
+			&wp.Longitude,
+			&wp.Altitude,
+			&wp.Action,
+			&wp.ActionDuration,
+		); err != nil {
+			return mission, err
+		}
+		waypoints = append(waypoints, wp)
+	}
+	mission.Waypoints = waypoints
+	return mission, nil
+}
+
+func (h *Handlers) UpdateMission(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	missionID, ok := parsePositiveMuxInt(w, r, "id", "Invalid Mission ID")
+	if !ok {
+		return
+	}
+
+	var req models.UpdateMissionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
+		return
+	}
+
+	tx, err := h.DB.Begin()
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	ctx, err := h.loadMissionMutationContext(tx, missionID)
+	if err == sql.ErrNoRows {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Mission not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to load mission for update: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load mission"})
+		return
+	}
+	if ctx.UserID != userID {
+		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if err := h.ensureMissionMutable(tx, missionID); err != nil {
+		if err.Error() == "mission is currently in progress" {
+			respondWithJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Printf("Failed to validate mission mutability: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission"})
+		return
+	}
+
+	finalUavID := ctx.UavID
+	if req.UavID != nil {
+		finalUavID = *req.UavID
+	}
+	finalMissionName := ctx.MissionName
+	if req.MissionName != nil {
+		finalMissionName = strings.TrimSpace(*req.MissionName)
+	}
+	if finalMissionName == "" {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "mission_name is required"})
+		return
+	}
+	finalSchedule := ctx.Schedule
+	scheduleChanged := false
+	if req.Schedule != nil {
+		finalSchedule = strings.TrimSpace(*req.Schedule)
+		scheduleChanged = true
+	}
+	if finalSchedule == "" {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "schedule is required"})
+		return
+	}
+	if scheduleChanged {
+		scheduleTime, ok := parseSchedule(finalSchedule)
+		if !ok {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid schedule format"})
+			return
+		}
+		now := time.Now().In(scheduleTime.Location())
+		if !scheduleTime.After(now) {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Schedule must be in the future"})
+			return
+		}
+	}
+
+	finalStatus := ctx.Status
+	if req.Status != nil {
+		finalStatus = strings.TrimSpace(*req.Status)
+	}
+	if finalStatus == "" {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "status is required"})
+		return
+	}
+
+	finalIsRecurring := ctx.IsRecurring
+	if req.IsRecurring != nil {
+		finalIsRecurring = *req.IsRecurring
+	}
+
+	finalRecurrenceUnit := ctx.RecurrenceUnit
+	if req.RecurrenceUnit != nil {
+		finalRecurrenceUnit = req.RecurrenceUnit
+	}
+	finalRecurrenceInterval := ctx.RecurrenceInterval
+	if req.RecurrenceInterval != nil {
+		finalRecurrenceInterval = req.RecurrenceInterval
+	}
+	recurrenceUnit, recurrenceInterval, err := normalizeMissionRecurrence(finalIsRecurring, finalRecurrenceUnit, finalRecurrenceInterval)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if !h.ensureMissionLookupUavAccess(w, r, finalUavID) {
+		return
+	}
+
+	_, err = tx.Exec(`
+		UPDATE missions
+		SET uav_id = $1,
+			mission_name = $2,
+			schedule = $3,
+			is_recurring = $4,
+			recurrence_unit = $5,
+			recurrence_interval = $6,
+			status = $7,
+			updated_at = $8
+		WHERE id = $9`,
+		finalUavID,
+		finalMissionName,
+		finalSchedule,
+		finalIsRecurring,
+		nullableStringPointerValue(recurrenceUnit),
+		nullableIntPointerValue(recurrenceInterval),
+		finalStatus,
+		time.Now().UTC(),
+		missionID,
+	)
+	if err != nil {
+		log.Printf("Failed to update mission: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission"})
+		return
+	}
+
+	if req.Waypoints != nil {
+		if _, err := tx.Exec(`DELETE FROM waypoints WHERE mission_id = $1`, missionID); err != nil {
+			log.Printf("Failed to delete existing waypoints: %v", err)
+			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission"})
+			return
+		}
+		for _, wp := range *req.Waypoints {
+			if _, err := tx.Exec(`
+				INSERT INTO waypoints (mission_id, sequence_order, latitude, longitude, altitude, action, action_duration)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				missionID,
+				wp.SequenceOrder,
+				wp.Latitude,
+				wp.Longitude,
+				wp.Altitude,
+				wp.Action,
+				wp.ActionDuration,
+			); err != nil {
+				log.Printf("Failed to insert updated waypoint: %v", err)
+				respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission"})
+				return
+			}
+		}
+	}
+
+	mission, err := h.buildMissionDetail(tx, missionID)
+	if err != nil {
+		log.Printf("Failed to reload mission after update: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit mission update: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, mission)
+}
+
+func (h *Handlers) DeleteMission(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	missionID, ok := parsePositiveMuxInt(w, r, "id", "Invalid Mission ID")
+	if !ok {
+		return
+	}
+
+	tx, err := h.DB.Begin()
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	ctx, err := h.loadMissionMutationContext(tx, missionID)
+	if err == sql.ErrNoRows {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Mission not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to load mission for delete: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete mission"})
+		return
+	}
+	if ctx.UserID != userID {
+		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	if err := h.ensureMissionMutable(tx, missionID); err != nil {
+		if err.Error() == "mission is currently in progress" {
+			respondWithJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Printf("Failed to validate mission mutability: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete mission"})
+		return
+	}
+
+	result, err := tx.Exec(`
+		UPDATE missions
+		SET deleted_at = $1, deleted_by = $2, updated_at = $1
+		WHERE id = $3 AND deleted_at IS NULL`,
+		time.Now().UTC(),
+		userID,
+		missionID,
+	)
+	if err != nil {
+		log.Printf("Failed to soft delete mission: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete mission"})
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Mission not found"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit mission delete: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete mission"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Mission deleted successfully"})
+}
+
 func (h *Handlers) GetLastMission(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID, err := strconv.Atoi(vars["user_id"])
@@ -323,7 +855,7 @@ func (h *Handlers) GetLastMission(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, created_at
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
         FROM missions
         WHERE user_id = $1 AND status = $2 AND deleted_at IS NULL`
 
@@ -340,6 +872,8 @@ func (h *Handlers) GetLastMission(w http.ResponseWriter, r *http.Request) {
 	found := false
 	for rows.Next() {
 		var candidate models.Mission
+		var recurrenceUnit sql.NullString
+		var recurrenceInterval sql.NullInt32
 		if err := rows.Scan(
 			&candidate.ID,
 			&candidate.UserID,
@@ -347,12 +881,15 @@ func (h *Handlers) GetLastMission(w http.ResponseWriter, r *http.Request) {
 			&candidate.MissionName,
 			&candidate.Schedule,
 			&candidate.IsRecurring,
+			&recurrenceUnit,
+			&recurrenceInterval,
 			&candidate.Status,
 			&candidate.Timestamp,
 		); err != nil {
 			log.Printf("Error scanning mission: %v", err)
 			continue
 		}
+		assignMissionRecurrence(&candidate, recurrenceUnit, recurrenceInterval)
 
 		scheduleTime, ok := parseSchedule(candidate.Schedule)
 		if !ok {
@@ -372,40 +909,198 @@ func (h *Handlers) GetLastMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	waypointsQuery := `
-        SELECT 
-            id, sequence_order, latitude, longitude, altitude, action, action_duration 
-        FROM waypoints
-        WHERE mission_id = $1
-        ORDER BY sequence_order ASC`
-
-	wpRows, err := h.DB.Query(waypointsQuery, mission.ID)
+	mission.Waypoints, err = h.loadMissionWaypoints(mission.ID)
 	if err != nil {
 		log.Printf("Error querying waypoints: %v", err)
 		respondWithJSON(w, http.StatusOK, mission)
 		return
 	}
-	defer wpRows.Close()
-
-	waypoints := []models.Waypoint{}
-	for wpRows.Next() {
-		var wp models.Waypoint
-		if err := wpRows.Scan(
-			&wp.ID,
-			&wp.SequenceOrder,
-			&wp.Latitude,
-			&wp.Longitude,
-			&wp.Altitude,
-			&wp.Action,
-			&wp.ActionDuration); err != nil {
-			log.Printf("Error scanning waypoint: %v", err)
-			continue
-		}
-		waypoints = append(waypoints, wp)
-	}
-	mission.Waypoints = waypoints
 
 	respondWithJSON(w, http.StatusOK, mission)
+}
+
+func (h *Handlers) GetNextWaitingMissionByUAV(w http.ResponseWriter, r *http.Request) {
+	uavID, ok := parsePositiveMuxInt(w, r, "uav_id", "Invalid UAV ID")
+	if !ok {
+		return
+	}
+	if !h.ensureMissionLookupUavAccess(w, r, uavID) {
+		return
+	}
+
+	rows, err := h.DB.Query(`
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
+        FROM missions
+        WHERE uav_id = $1 AND status = $2 AND deleted_at IS NULL`,
+		uavID, "Waiting")
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	var mission models.Mission
+	var bestSchedule time.Time
+	found := false
+	for rows.Next() {
+		var candidate models.Mission
+		var recurrenceUnit sql.NullString
+		var recurrenceInterval sql.NullInt32
+		if err := rows.Scan(
+			&candidate.ID,
+			&candidate.UserID,
+			&candidate.UavID,
+			&candidate.MissionName,
+			&candidate.Schedule,
+			&candidate.IsRecurring,
+			&recurrenceUnit,
+			&recurrenceInterval,
+			&candidate.Status,
+			&candidate.Timestamp,
+		); err != nil {
+			log.Printf("Error scanning mission: %v", err)
+			continue
+		}
+		assignMissionRecurrence(&candidate, recurrenceUnit, recurrenceInterval)
+
+		scheduleTime, ok := parseSchedule(candidate.Schedule)
+		if !ok {
+			continue
+		}
+		if scheduleTime.Before(now) {
+			continue
+		}
+		if !found || scheduleTime.Before(bestSchedule) {
+			bestSchedule = scheduleTime
+			mission = candidate
+			found = true
+		}
+	}
+	if !found {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "No upcoming waiting missions found for this UAV"})
+		return
+	}
+
+	mission.Waypoints, err = h.loadMissionWaypoints(mission.ID)
+	if err != nil {
+		log.Printf("Error querying waypoints: %v", err)
+		respondWithJSON(w, http.StatusOK, missionLookupResponse{Mission: mission})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, missionLookupResponse{Mission: mission})
+}
+
+func (h *Handlers) GetNextWaitingMissionForDevice(w http.ResponseWriter, r *http.Request) {
+	uavID, ok := h.resolveMissionLookupUavIDFromDevice(w, r)
+	if !ok {
+		return
+	}
+
+	mission, found, err := h.findNextWaitingMissionByUavID(uavID)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if !found {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "No upcoming waiting missions found for this device"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, missionLookupResponse{Mission: mission})
+}
+
+func (h *Handlers) GetSafeToFlyMissionByUAV(w http.ResponseWriter, r *http.Request) {
+	uavID, ok := parsePositiveMuxInt(w, r, "uav_id", "Invalid UAV ID")
+	if !ok {
+		return
+	}
+	if !h.ensureMissionLookupUavAccess(w, r, uavID) {
+		return
+	}
+
+	var historyID int
+	var runtimeStatus string
+	var mission models.Mission
+	var recurrenceUnit sql.NullString
+	var recurrenceInterval sql.NullInt32
+	err := h.DB.QueryRow(`
+        SELECT mh.id, mh.status,
+               m.id, m.user_id, m.uav_id, m.mission_name, m.schedule, m.is_recurring, m.recurrence_unit, m.recurrence_interval, m.status, m.created_at
+        FROM mission_history mh
+        INNER JOIN missions m ON m.id = mh.mission_id
+        WHERE mh.uav_id = $1
+          AND mh.status = $2
+          AND m.deleted_at IS NULL
+        ORDER BY mh.started_at DESC NULLS LAST, mh.created_at DESC
+        LIMIT 1`,
+		uavID, missionHistoryStatusSafeToFly,
+	).Scan(
+		&historyID,
+		&runtimeStatus,
+		&mission.ID,
+		&mission.UserID,
+		&mission.UavID,
+		&mission.MissionName,
+		&mission.Schedule,
+		&mission.IsRecurring,
+		&recurrenceUnit,
+		&recurrenceInterval,
+		&mission.Status,
+		&mission.Timestamp,
+	)
+	if err == sql.ErrNoRows {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "No SafeToFly mission found for this UAV"})
+		return
+	}
+	if err != nil {
+		log.Printf("Error loading SafeToFly mission for uav %d: %v", uavID, err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load mission"})
+		return
+	}
+	assignMissionRecurrence(&mission, recurrenceUnit, recurrenceInterval)
+
+	mission.Waypoints, err = h.loadMissionWaypoints(mission.ID)
+	if err != nil {
+		log.Printf("Error querying waypoints: %v", err)
+		respondWithJSON(w, http.StatusOK, missionLookupResponse{
+			Mission:       mission,
+			HistoryID:     &historyID,
+			RuntimeStatus: &runtimeStatus,
+		})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, missionLookupResponse{
+		Mission:       mission,
+		HistoryID:     &historyID,
+		RuntimeStatus: &runtimeStatus,
+	})
+}
+
+func (h *Handlers) GetSafeToFlyMissionForDevice(w http.ResponseWriter, r *http.Request) {
+	uavID, ok := h.resolveMissionLookupUavIDFromDevice(w, r)
+	if !ok {
+		return
+	}
+
+	historyID, runtimeStatus, mission, found, err := h.findSafeToFlyMissionByUavID(uavID)
+	if err != nil {
+		log.Printf("Error loading SafeToFly mission for device uav %d: %v", uavID, err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load mission"})
+		return
+	}
+	if !found {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "No SafeToFly mission found for this device"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, missionLookupResponse{
+		Mission:       mission,
+		HistoryID:     &historyID,
+		RuntimeStatus: &runtimeStatus,
+	})
 }
 
 func parseSchedule(raw string) (time.Time, bool) {
@@ -451,6 +1146,261 @@ func formatScheduleLike(raw string, t time.Time) string {
 	}
 }
 
+func (h *Handlers) loadMissionWaypoints(missionID int) ([]models.Waypoint, error) {
+	rows, err := h.DB.Query(`
+        SELECT 
+            id, sequence_order, latitude, longitude, altitude, action, action_duration 
+        FROM waypoints
+        WHERE mission_id = $1
+        ORDER BY sequence_order ASC`, missionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	waypoints := []models.Waypoint{}
+	for rows.Next() {
+		var wp models.Waypoint
+		if err := rows.Scan(
+			&wp.ID,
+			&wp.SequenceOrder,
+			&wp.Latitude,
+			&wp.Longitude,
+			&wp.Altitude,
+			&wp.Action,
+			&wp.ActionDuration,
+		); err != nil {
+			log.Printf("Error scanning waypoint: %v", err)
+			continue
+		}
+		waypoints = append(waypoints, wp)
+	}
+	return waypoints, nil
+}
+
+func parsePositiveMuxInt(w http.ResponseWriter, r *http.Request, key, message string) (int, bool) {
+	value, err := strconv.Atoi(mux.Vars(r)[key])
+	if err != nil || value <= 0 {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": message})
+		return 0, false
+	}
+	return value, true
+}
+
+func (h *Handlers) resolveMissionLookupUavIDFromDevice(w http.ResponseWriter, r *http.Request) (int, bool) {
+	deviceClaims, ok := auth.DeviceClaimsFromContext(r.Context())
+	if !ok || deviceClaims == nil {
+		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "device token required"})
+		return 0, false
+	}
+
+	switch deviceClaims.ScopeType {
+	case auth.DeviceScopeUav:
+		if deviceClaims.UavID == nil || *deviceClaims.UavID <= 0 {
+			respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return 0, false
+		}
+		return *deviceClaims.UavID, true
+	case auth.DeviceScopeDocking:
+		if deviceClaims.DockingID == nil || *deviceClaims.DockingID <= 0 {
+			respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return 0, false
+		}
+		uavID, err := h.resolveDockingUavID(*deviceClaims.DockingID)
+		if err != nil {
+			if err.Error() == "docking not found" {
+				respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Docking not found"})
+				return 0, false
+			}
+			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error"})
+			return 0, false
+		}
+		return uavID, true
+	default:
+		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return 0, false
+	}
+}
+
+func (h *Handlers) findNextWaitingMissionByUavID(uavID int) (models.Mission, bool, error) {
+	rows, err := h.DB.Query(`
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
+        FROM missions
+        WHERE uav_id = $1 AND status = $2 AND deleted_at IS NULL`,
+		uavID, "Waiting")
+	if err != nil {
+		return models.Mission{}, false, err
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	var mission models.Mission
+	var bestSchedule time.Time
+	found := false
+	for rows.Next() {
+		var candidate models.Mission
+		var recurrenceUnit sql.NullString
+		var recurrenceInterval sql.NullInt32
+		if err := rows.Scan(
+			&candidate.ID,
+			&candidate.UserID,
+			&candidate.UavID,
+			&candidate.MissionName,
+			&candidate.Schedule,
+			&candidate.IsRecurring,
+			&recurrenceUnit,
+			&recurrenceInterval,
+			&candidate.Status,
+			&candidate.Timestamp,
+		); err != nil {
+			log.Printf("Error scanning mission: %v", err)
+			continue
+		}
+		assignMissionRecurrence(&candidate, recurrenceUnit, recurrenceInterval)
+
+		scheduleTime, ok := parseSchedule(candidate.Schedule)
+		if !ok {
+			continue
+		}
+		if scheduleTime.Before(now) {
+			continue
+		}
+		if !found || scheduleTime.Before(bestSchedule) {
+			bestSchedule = scheduleTime
+			mission = candidate
+			found = true
+		}
+	}
+	if !found {
+		return models.Mission{}, false, nil
+	}
+
+	waypoints, err := h.loadMissionWaypoints(mission.ID)
+	if err != nil {
+		log.Printf("Error querying waypoints: %v", err)
+		return mission, true, nil
+	}
+	mission.Waypoints = waypoints
+	return mission, true, nil
+}
+
+func (h *Handlers) findSafeToFlyMissionByUavID(uavID int) (int, string, models.Mission, bool, error) {
+	var historyID int
+	var runtimeStatus string
+	var mission models.Mission
+	var recurrenceUnit sql.NullString
+	var recurrenceInterval sql.NullInt32
+	err := h.DB.QueryRow(`
+        SELECT mh.id, mh.status,
+               m.id, m.user_id, m.uav_id, m.mission_name, m.schedule, m.is_recurring, m.recurrence_unit, m.recurrence_interval, m.status, m.created_at
+        FROM mission_history mh
+        INNER JOIN missions m ON m.id = mh.mission_id
+        WHERE mh.uav_id = $1
+          AND mh.status = $2
+          AND m.deleted_at IS NULL
+        ORDER BY mh.started_at DESC NULLS LAST, mh.created_at DESC
+        LIMIT 1`,
+		uavID, missionHistoryStatusSafeToFly,
+	).Scan(
+		&historyID,
+		&runtimeStatus,
+		&mission.ID,
+		&mission.UserID,
+		&mission.UavID,
+		&mission.MissionName,
+		&mission.Schedule,
+		&mission.IsRecurring,
+		&recurrenceUnit,
+		&recurrenceInterval,
+		&mission.Status,
+		&mission.Timestamp,
+	)
+	if err == sql.ErrNoRows {
+		return 0, "", models.Mission{}, false, nil
+	}
+	if err != nil {
+		return 0, "", models.Mission{}, false, err
+	}
+	assignMissionRecurrence(&mission, recurrenceUnit, recurrenceInterval)
+
+	waypoints, err := h.loadMissionWaypoints(mission.ID)
+	if err != nil {
+		log.Printf("Error querying waypoints: %v", err)
+		return historyID, runtimeStatus, mission, true, nil
+	}
+	mission.Waypoints = waypoints
+	return historyID, runtimeStatus, mission, true, nil
+}
+
+func (h *Handlers) ensureMissionLookupUavAccess(w http.ResponseWriter, r *http.Request, uavID int) bool {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok || claims == nil {
+		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return false
+	}
+
+	if deviceClaims, ok := auth.DeviceClaimsFromContext(r.Context()); ok && deviceClaims != nil {
+		switch deviceClaims.ScopeType {
+		case auth.DeviceScopeUav:
+			if deviceClaims.UavID == nil || *deviceClaims.UavID != uavID {
+				respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+				return false
+			}
+			return true
+		case auth.DeviceScopeDocking:
+			if deviceClaims.DockingID == nil {
+				respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+				return false
+			}
+			resolvedUavID, err := h.resolveDockingUavID(*deviceClaims.DockingID)
+			if err != nil {
+				if err.Error() == "docking not found" {
+					respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Docking not found"})
+					return false
+				}
+				respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error"})
+				return false
+			}
+			if resolvedUavID != uavID {
+				respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+				return false
+			}
+			return true
+		default:
+			respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return false
+		}
+	}
+
+	if strings.TrimSpace(claims.Subject) == "device" {
+		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return false
+	}
+
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
+		return false
+	}
+
+	var owner sql.NullInt32
+	err := h.DB.QueryRow(`SELECT owner_id FROM uav WHERE id = $1 AND deleted_at IS NULL`, uavID).Scan(&owner)
+	if err == sql.ErrNoRows {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "UAV not found"})
+		return false
+	}
+	if err != nil {
+		log.Printf("Failed to load UAV owner: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error"})
+		return false
+	}
+	if !owner.Valid || int(owner.Int32) != userID {
+		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return false
+	}
+
+	return true
+}
+
 func (h *Handlers) GetMissionsByUserAndUAV(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID, err := strconv.Atoi(vars["user_id"])
@@ -460,7 +1410,7 @@ func (h *Handlers) GetMissionsByUserAndUAV(w http.ResponseWriter, r *http.Reques
 	}
 	uavIDStr := r.URL.Query().Get("uav_id")
 	query := `
-        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, created_at
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
         FROM missions
         WHERE user_id = $1 AND deleted_at IS NULL`
 
@@ -488,10 +1438,13 @@ func (h *Handlers) GetMissionsByUserAndUAV(w http.ResponseWriter, r *http.Reques
 	missions := []models.Mission{}
 	for rows.Next() {
 		var m models.Mission
-		if err := rows.Scan(&m.ID, &m.UserID, &m.UavID, &m.MissionName, &m.Schedule, &m.IsRecurring, &m.Status, &m.Timestamp); err != nil {
+		var recurrenceUnit sql.NullString
+		var recurrenceInterval sql.NullInt32
+		if err := rows.Scan(&m.ID, &m.UserID, &m.UavID, &m.MissionName, &m.Schedule, &m.IsRecurring, &recurrenceUnit, &recurrenceInterval, &m.Status, &m.Timestamp); err != nil {
 			log.Printf("Error scanning mission: %v", err)
 			continue
 		}
+		assignMissionRecurrence(&m, recurrenceUnit, recurrenceInterval)
 		missions = append(missions, m)
 	}
 
@@ -508,8 +1461,10 @@ func (h *Handlers) GetMissionByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var mission models.Mission
+	var recurrenceUnit sql.NullString
+	var recurrenceInterval sql.NullInt32
 	missionQuery := `
-        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, created_at
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
         FROM missions
         WHERE id = $1 AND deleted_at IS NULL`
 
@@ -521,6 +1476,8 @@ func (h *Handlers) GetMissionByID(w http.ResponseWriter, r *http.Request) {
 		&mission.MissionName,
 		&mission.Schedule,
 		&mission.IsRecurring,
+		&recurrenceUnit,
+		&recurrenceInterval,
 		&mission.Status,
 		&mission.Timestamp)
 
@@ -533,6 +1490,7 @@ func (h *Handlers) GetMissionByID(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	assignMissionRecurrence(&mission, recurrenceUnit, recurrenceInterval)
 
 	waypointsQuery := `
         SELECT 
@@ -683,7 +1641,7 @@ func (h *Handlers) GetMissionsByUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	missionQuery := `
-        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, created_at
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
         FROM missions
         WHERE user_id = $1 AND deleted_at IS NULL
         ORDER BY created_at DESC`
@@ -699,6 +1657,8 @@ func (h *Handlers) GetMissionsByUser(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var m models.Mission
+		var recurrenceUnit sql.NullString
+		var recurrenceInterval sql.NullInt32
 		err := rows.Scan(
 			&m.ID,
 			&m.UserID,
@@ -706,6 +1666,8 @@ func (h *Handlers) GetMissionsByUser(w http.ResponseWriter, r *http.Request) {
 			&m.MissionName,
 			&m.Schedule,
 			&m.IsRecurring,
+			&recurrenceUnit,
+			&recurrenceInterval,
 			&m.Status,
 			&m.Timestamp,
 		)
@@ -713,6 +1675,7 @@ func (h *Handlers) GetMissionsByUser(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error scanning mission: %v", err)
 			continue
 		}
+		assignMissionRecurrence(&m, recurrenceUnit, recurrenceInterval)
 
 		wpQuery := `
             SELECT sequence_order, latitude, longitude, altitude, action, action_duration
@@ -782,8 +1745,10 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	var mission models.Mission
+	var recurrenceUnit sql.NullString
+	var recurrenceInterval sql.NullInt32
 	err = tx.QueryRow(`
-        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, status, created_at
+        SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at
         FROM missions
         WHERE id = $1 AND deleted_at IS NULL`, missionID).Scan(
 		&mission.ID,
@@ -792,6 +1757,8 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 		&mission.MissionName,
 		&mission.Schedule,
 		&mission.IsRecurring,
+		&recurrenceUnit,
+		&recurrenceInterval,
 		&mission.Status,
 		&mission.Timestamp,
 	)
@@ -804,6 +1771,11 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
 		return
 	}
+	assignMissionRecurrence(&mission, recurrenceUnit, recurrenceInterval)
+
+	if !h.authorizeMissionStart(w, r, mission.UserID, mission.UavID) {
+		return
+	}
 
 	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, mission.UavID); err != nil {
 		log.Printf("Failed to acquire UAV lock: %v", err)
@@ -814,11 +1786,13 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 	var existingID int
 	var existingMissionID int
 	err = tx.QueryRow(`
-        SELECT id, mission_id
-        FROM mission_history
-        WHERE status = 'InProgress' AND (mission_id = $1 OR uav_id = $2)
-        ORDER BY created_at DESC
-        LIMIT 1`, missionID, mission.UavID).Scan(&existingID, &existingMissionID)
+	        SELECT id, mission_id
+	        FROM mission_history
+	        WHERE completed_at IS NULL
+	          AND status NOT IN ('Completed', 'Failed', 'Aborted')
+	          AND (mission_id = $1 OR uav_id = $2)
+	        ORDER BY created_at DESC
+	        LIMIT 1`, missionID, mission.UavID).Scan(&existingID, &existingMissionID)
 	if err == nil {
 		message := "Mission already in progress"
 		if existingMissionID != missionID {
@@ -881,14 +1855,27 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 
 	startedAt := time.Now().UTC()
 	var historyID int
+	var dockingID sql.NullInt32
 	err = tx.QueryRow(`
-        INSERT INTO mission_history (mission_id, user_id, uav_id, status, started_at, mission_snapshot)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id`,
+	        SELECT id
+	        FROM docking
+	        WHERE uav_id = $1 AND is_active = true
+	        ORDER BY is_primary DESC, created_at DESC
+	        LIMIT 1`, mission.UavID).Scan(&dockingID)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("Failed to resolve active docking: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
+		return
+	}
+	err = tx.QueryRow(`
+	        INSERT INTO mission_history (mission_id, user_id, uav_id, docking_id, status, started_at, mission_snapshot)
+	        VALUES ($1, $2, $3, $4, $5, $6, $7)
+	        RETURNING id`,
 		missionID,
 		mission.UserID,
 		mission.UavID,
-		"InProgress",
+		dockingID,
+		missionHistoryStatusPreparingDock,
 		startedAt,
 		missionSnapshot,
 	).Scan(&historyID)
@@ -904,6 +1891,21 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := insertMissionEvent(
+		tx,
+		historyID,
+		nil,
+		nullableStringOrNil(missionHistoryStatusPreparingDock),
+		nil,
+		nil,
+		nullableStringOrNil("Mission run started"),
+		false,
+	); err != nil {
+		log.Printf("Failed to insert mission event: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit mission start: %v", err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to start mission"})
@@ -912,15 +1914,14 @@ func (h *Handlers) StartMission(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusCreated, startMissionResponse{
 		HistoryID: historyID,
-		Status:    "InProgress",
+		Status:    missionHistoryStatusPreparingDock,
 	})
 }
 
 func (h *Handlers) CompleteMissionByHistoryID(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	historyID, err := strconv.Atoi(vars["history_id"])
-	if err != nil || historyID <= 0 {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid history_id"})
+	historyID, err := parseMissionHistoryID(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -931,70 +1932,50 @@ func (h *Handlers) CompleteMissionByHistoryID(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
-	var missionID int
-	var currentStatus string
-	err = tx.QueryRow(`SELECT mission_id, status FROM mission_history WHERE id = $1`, historyID).
-		Scan(&missionID, &currentStatus)
-	if err == sql.ErrNoRows {
-		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "History not found"})
-		return
-	}
+	ctx, err := h.loadMissionHistoryRuntimeContext(tx, historyID)
 	if err != nil {
-		log.Printf("Failed to query mission history: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to complete mission"})
-		return
-	}
-	if currentStatus != "InProgress" {
-		respondWithJSON(w, http.StatusConflict, map[string]string{"error": "history is not in progress"})
+		h.respondMissionHistoryContextError(w, err)
 		return
 	}
 
-	var isRecurring bool
-	var scheduleRaw string
-	err = tx.QueryRow(`SELECT is_recurring, schedule FROM missions WHERE id = $1`, missionID).Scan(&isRecurring, &scheduleRaw)
-	if err == sql.ErrNoRows {
-		respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Mission not found"})
-		return
-	}
-	if err != nil {
-		log.Printf("Failed to query mission: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to complete mission"})
+	if !h.authorizeMissionHistoryAccess(w, r, ctx) {
 		return
 	}
 
-	newStatus := "Completed"
-	var nextSchedule string
-	if isRecurring {
-		newStatus = "Waiting"
-		if scheduleTime, ok := parseSchedule(scheduleRaw); ok {
-			nextTime := scheduleTime.Add(24 * time.Hour)
-			now := time.Now().In(scheduleTime.Location())
-			for nextTime.Before(now) {
-				nextTime = nextTime.Add(24 * time.Hour)
-			}
-			nextSchedule = formatScheduleLike(scheduleRaw, nextTime)
-		}
+	if ctx.Status != missionHistoryStatusDockConfirmed {
+		respondWithJSON(w, http.StatusConflict, map[string]string{"error": "history must be DockConfirmed before completion"})
+		return
 	}
+
+	now := time.Now().UTC()
+	newMissionStatus, nextSchedule := resolveMissionTemplateAfterTerminalState(
+		ctx.IsRecurring,
+		ctx.Schedule,
+		ctx.RecurrenceUnit,
+		ctx.RecurrenceInterval,
+		missionHistoryStatusCompleted,
+		now,
+	)
 
 	if nextSchedule != "" {
-		if _, err := tx.Exec(`UPDATE missions SET status = $1, schedule = $2 WHERE id = $3`, newStatus, nextSchedule, missionID); err != nil {
+		if _, err := tx.Exec(`UPDATE missions SET status = $1, schedule = $2 WHERE id = $3`, newMissionStatus, nextSchedule, ctx.MissionID); err != nil {
 			log.Printf("Failed to update mission status/schedule: %v", err)
 			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission status"})
 			return
 		}
 	} else {
-		if _, err := tx.Exec(`UPDATE missions SET status = $1 WHERE id = $2`, newStatus, missionID); err != nil {
+		if _, err := tx.Exec(`UPDATE missions SET status = $1 WHERE id = $2`, newMissionStatus, ctx.MissionID); err != nil {
 			log.Printf("Failed to update mission status: %v", err)
 			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update mission status"})
 			return
 		}
 	}
 
-	completedAt := time.Now().UTC()
+	completedAt := now
 	result, err := tx.Exec(`
-        UPDATE mission_history
-        SET status = $1, completed_at = $2
-        WHERE id = $3`, "Completed", completedAt, historyID)
+	        UPDATE mission_history
+	        SET status = $1, completed_at = $2
+	        WHERE id = $3`, missionHistoryStatusCompleted, completedAt, historyID)
 	if err != nil {
 		log.Printf("Failed to update mission history: %v", err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save mission history"})
@@ -1005,11 +1986,34 @@ func (h *Handlers) CompleteMissionByHistoryID(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if err := insertMissionEvent(
+		tx,
+		historyID,
+		nullableStringOrNil(ctx.Status),
+		nullableStringOrNil(missionHistoryStatusCompleted),
+		terminalResult(missionHistoryStatusCompleted),
+		nil,
+		nullableStringOrNil("Mission completed"),
+		true,
+	); err != nil {
+		log.Printf("Failed to insert mission completion event: %v", err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to complete mission"})
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit mission completion: %v", err)
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to complete mission"})
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Mission status updated", "status": newStatus})
+	response := map[string]string{
+		"message":        "Mission completed",
+		"status":         missionHistoryStatusCompleted,
+		"mission_status": newMissionStatus,
+	}
+	if nextSchedule != "" {
+		response["next_schedule"] = nextSchedule
+	}
+	respondWithJSON(w, http.StatusOK, response)
 }

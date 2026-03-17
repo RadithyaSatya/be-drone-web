@@ -36,6 +36,23 @@ CREATE TABLE failure_code (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+INSERT INTO failure_code (code, description, is_retryable, is_critical)
+VALUES
+    ('DOCK_NOT_READY', 'Docking station is not ready for mission preparation or launch.', true, false),
+    ('DOCK_PREPARE_FAILED', 'Docking preparation failed before the mission could proceed.', true, false),
+    ('DOCK_DOOR_OPEN_FAILED', 'Docking door failed to open as required for launch or recovery.', true, true),
+    ('DOCK_DOOR_CLOSE_FAILED', 'Docking door failed to close after recovery.', true, true),
+    ('SAFE_TO_FLY_TIMEOUT', 'Docking could not reach SafeToFly state within the allowed time.', true, false),
+    ('BATTERY_LOW', 'Battery level is too low to continue or start the mission safely.', false, true),
+    ('GPS_NOT_READY', 'GPS or positioning system is not ready for safe mission execution.', true, true),
+    ('TAKEOFF_FAILED', 'Drone failed to take off or complete launch checks.', true, true),
+    ('LINK_LOST', 'Communication link to the drone or docking was lost.', true, true),
+    ('RETURN_TO_DOCK_FAILED', 'Drone failed to return to docking as expected.', true, true),
+    ('DRONE_NOT_DETECTED_IN_DOCK', 'Docking did not detect the drone during expected recovery.', true, true),
+    ('MISSION_TIMEOUT', 'Mission exceeded its allowed execution or coordination time window.', true, false),
+    ('MISSION_ABORTED_BY_OPERATOR', 'Mission was aborted manually by an operator.', false, false),
+    ('MISSION_ABORTED_BY_SYSTEM', 'Mission was aborted automatically by the system for safety reasons.', false, true);
+nah boleh 
 -- =========================================================
 -- UAV
 -- =========================================================
@@ -136,6 +153,8 @@ CREATE TABLE missions (
     mission_name VARCHAR(255) NOT NULL,
     schedule VARCHAR(255),
     is_recurring BOOLEAN NOT NULL DEFAULT false,
+    recurrence_unit VARCHAR(20),
+    recurrence_interval INT CHECK (recurrence_interval IS NULL OR recurrence_interval > 0),
     status VARCHAR(50) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ,

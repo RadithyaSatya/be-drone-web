@@ -30,6 +30,7 @@ func main() {
 	log.Println("Successfully connected to PostgreSQL database!")
 
 	h := handlers.NewHandlers(db)
+	h.StartMissionRecoveryLoop()
 	wsHub := ws.NewHub()
 	go wsHub.Run()
 	h.RealtimeHub = wsHub

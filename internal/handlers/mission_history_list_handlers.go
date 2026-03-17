@@ -53,7 +53,13 @@ func (h *Handlers) ListMissionHistory(w http.ResponseWriter, r *http.Request) {
 
 	query := `
         SELECT id, mission_id, user_id, uav_id, status, failure_reason,
-               started_at, completed_at, created_at, mission_snapshot
+               started_at, completed_at,
+               (
+                   SELECT COUNT(*)
+                   FROM mission_media mm
+                   WHERE mm.history_id = mission_history.id
+               ) AS media_count,
+               created_at, mission_snapshot
         FROM mission_history
         WHERE user_id = $1`
 	args := []interface{}{userID}
@@ -90,6 +96,7 @@ func (h *Handlers) ListMissionHistory(w http.ResponseWriter, r *http.Request) {
 			&failureReason,
 			&startedAt,
 			&completedAt,
+			&item.MediaCount,
 			&item.CreatedAt,
 			&item.MissionSnapshot,
 		); err != nil {

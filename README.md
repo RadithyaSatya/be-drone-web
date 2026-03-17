@@ -29,6 +29,38 @@ Import the Postman collection to analyze and test all of the available endpoints
 
 ---
 
+## UAV Dropdown
+
+Use `GET /uavs/me/dropdown` to populate lightweight UAV selectors in the frontend.
+
+Each item contains:
+- `id`
+- `name`
+- `camera_spec`
+- `primary_docking` (optional)
+
+`primary_docking` is nullable and represents the UAV's primary active docking, resolved by `is_primary DESC, created_at DESC`. If a UAV has no active docking, the field is omitted.
+
+Example response:
+```json
+[
+  {
+    "id": 1,
+    "name": "UAV Alpha",
+    "camera_spec": "4K",
+    "primary_docking": {
+      "id": 5,
+      "name": "Dock A",
+      "location_name": "Hangar Timur",
+      "latitude": -6.2,
+      "longitude": 106.8
+    }
+  }
+]
+```
+
+---
+
 ## ⚡ Realtime Telemetry (HTTP -> WebSocket)
 
 **Goal**: device services, gateways, or drones send realtime data to the backend, and the backend forwards that data to frontend clients over WebSocket.
@@ -268,8 +300,34 @@ Envelope fields:
 ### Device Tokens (per device)
 - `POST /device-tokens/uav/{uav_id}` generates a token scoped to a UAV.
 - `POST /device-tokens/docking/{docking_id}` generates a token scoped to a docking.
+- `GET /device-context` returns the device identity derived from `X-Device-Token`.
 - Both return the token **once** and revoke any previous token for the same scope.
 - Tokens do not expire automatically. Use owner JWT to call these endpoints.
+
+Example `GET /device-context` response for a UAV token:
+```json
+{
+  "token_id": 12,
+  "scope_type": "uav",
+  "uav_id": 1,
+  "resolved_uav_id": 1
+}
+```
+
+Example `GET /device-context` response for a docking token:
+```json
+{
+  "token_id": 18,
+  "scope_type": "docking",
+  "docking_id": 5,
+  "resolved_uav_id": 1
+}
+```
+
+Notes:
+- `resolved_uav_id` is always the UAV that the backend will use for device mission polling.
+- For docking services, `GET /device-context` is the recommended startup/bootstrap call if the service still needs `uav_id` or `docking_id` for telemetry payloads or local state.
+- If the request is authenticated with JWT instead of `X-Device-Token`, the endpoint returns `401 device token required`.
 
 ### Login (JWT issuer, users table)
 - `POST /auth/login`
@@ -469,26 +527,316 @@ No docking list/get endpoints; docking data is returned via `GET /uavs/{id}`.
 - `GET /uavs/{id}` returns UAV info with its docking list.
 - Each docking includes its latest `docking_status` (if available).
 
+### Mission CRUD
+- `GET /missions/me` returns missions for the authenticated user with pagination.
+- `GET /missions/{id}` returns one mission with its waypoint list.
+- `POST /register-mission` creates a mission.
+- `PATCH /missions/{id}` updates a mission and optionally replaces its waypoint list.
+- `DELETE /missions/{id}` soft-deletes a mission.
+
+Mission list query params:
+- `page` default `1`
+- `limit` default `20`, max `100`
+- `uav_id` optional filter
+- `date` optional exact schedule date in `YYYY-MM-DD`
+
+Example `GET /missions/me?page=1&limit=20&date=2026-03-14` response:
+```json
+{
+  "page": 1,
+  "limit": 20,
+  "total": 1,
+  "total_pages": 1,
+  "has_next": false,
+  "has_prev": false,
+  "next_page": null,
+  "prev_page": null,
+  "items": [
+    {
+      "id": 10,
+      "user_id": 3,
+      "uav_id": 2,
+      "mission_name": "Survey Alpha",
+      "schedule": "2026-03-14T08:00:00Z",
+      "is_recurring": true,
+      "recurrence_unit": "hour",
+      "recurrence_interval": 4,
+      "status": "Waiting",
+      "timestamp": "2026-03-13T09:00:00Z",
+      "deleted_at": null,
+      "waypoint_count": 3,
+      "uav": {
+        "id": 2,
+        "name": "Drone Alpha"
+      }
+    }
+  ]
+}
+```
+
+Example `GET /missions/{id}` response:
+```json
+{
+  "id": 10,
+  "user_id": 3,
+  "uav_id": 2,
+  "mission_name": "Survey Alpha",
+  "schedule": "2026-03-14T08:00:00Z",
+  "is_recurring": true,
+  "recurrence_unit": "hour",
+  "recurrence_interval": 4,
+  "status": "Waiting",
+  "timestamp": "2026-03-13T09:00:00Z",
+  "waypoints": [
+    {
+      "id": 1,
+      "sequence_order": 1,
+      "latitude": -6.2,
+      "longitude": 106.8,
+      "altitude": 30,
+      "action": "take_photo",
+      "action_duration": 5
+    }
+  ]
+}
+```
+
+Example `PATCH /missions/{id}` body:
+```json
+{
+  "mission_name": "Survey Alpha Revised",
+  "schedule": "2026-03-14T12:00:00Z",
+  "is_recurring": true,
+  "recurrence_unit": "hour",
+  "recurrence_interval": 6,
+  "status": "Waiting",
+  "waypoints": [
+    {
+      "sequence_order": 1,
+      "latitude": -6.2,
+      "longitude": 106.8,
+      "altitude": 40,
+      "action": "hold",
+      "action_duration": 10
+    }
+  ]
+}
+```
+
+Mission mutation rules:
+- Update and delete require owner JWT.
+- Update and delete are rejected with `409` if the mission currently has an active run (`InProgress` / non-terminal history).
+- If `waypoints` is provided on update, the backend replaces all existing waypoints with the new list.
+- If `waypoints` is omitted on update, existing waypoints are kept.
+
 ### Mission History
-- `POST /missions/{id}/start` will insert a record into `mission_history` with status `InProgress`.
-- `POST /mission-history/{history_id}/complete` will update that history row to `Completed`.
+- Mission polling for device services is split into two recommended endpoints:
+  - `GET /missions/waiting/device` for docking services looking for the next `Waiting` mission
+  - `GET /missions/safe-to-fly/device` for drone services looking for the active `SafeToFly` mission run
+- `GET /device-context` can be used once at service startup to discover the IDs associated with the current device token.
+- `POST /missions/{id}/start` creates a mission run in `mission_history` with initial status `PreparingDock`.
+- `GET /mission-history/{history_id}/state` returns the current runtime state for one mission run.
+- `PATCH /mission-history/{history_id}/state` moves the mission run through its runtime states.
+- `POST /mission-history/{history_id}/complete` finalizes the mission run after `DockConfirmed`.
 - `GET /mission-history/me` returns history entries for the authenticated user (paginated).
+- `GET /mission-history/{history_id}/events` returns the event timeline for one mission run.
+
+Mission polling responses:
+- Both polling endpoints return the same mission fields and waypoint list as the old `GET /missions/next/{user_id}` flow.
+- `GET /missions/safe-to-fly/device` also includes:
+  - `history_id`
+  - `runtime_status`
+- Both device polling endpoints derive the UAV from `X-Device-Token`:
+  - UAV token -> direct `uav_id`
+  - docking token -> backend resolves `uav_id` from `docking_id`
+- These endpoints are intended for device tokens and do not require `uav_id` in the URL anymore.
+- `GET /device-context` returns the same token-derived identity so device services can avoid hardcoded IDs.
+
+Example waiting mission response:
+```json
+{
+  "id": 10,
+  "user_id": 3,
+  "uav_id": 2,
+  "mission_name": "Survey Alpha",
+  "schedule": "2026-03-13T10:00:00Z",
+  "is_recurring": true,
+  "recurrence_unit": "hour",
+  "recurrence_interval": 4,
+  "status": "Waiting",
+  "timestamp": "2026-03-13T09:00:00Z",
+  "waypoints": [
+    {
+      "id": 1,
+      "sequence_order": 1,
+      "latitude": -6.2,
+      "longitude": 106.8,
+      "altitude": 30,
+      "action": "take_photo",
+      "action_duration": 5
+    }
+  ]
+}
+```
+
+Example SafeToFly mission response:
+```json
+{
+  "id": 10,
+  "user_id": 3,
+  "uav_id": 2,
+  "mission_name": "Survey Alpha",
+  "schedule": "2026-03-13T10:00:00Z",
+  "is_recurring": true,
+  "recurrence_unit": "hour",
+  "recurrence_interval": 4,
+  "status": "InProgress",
+  "timestamp": "2026-03-13T09:00:00Z",
+  "waypoints": [
+    {
+      "id": 1,
+      "sequence_order": 1,
+      "latitude": -6.2,
+      "longitude": 106.8,
+      "altitude": 30,
+      "action": "take_photo",
+      "action_duration": 5
+    }
+  ],
+  "history_id": 123,
+  "runtime_status": "SafeToFly"
+}
+```
+
+Polling endpoint status codes:
+- `200 OK`: mission found
+- `404 Not Found`: no matching mission currently available, or docking token points to a docking row that no longer exists
+- `403 Forbidden`: device token scope is invalid for mission lookup
+- `401 Unauthorized`: missing/invalid device token, or request was not authenticated as a device
+
+Mission scheduling / recurrence:
+- `schedule` stores the next execution time for the mission template.
+- Non-recurring mission:
+  - `is_recurring = false`
+  - `recurrence_unit = null`
+  - `recurrence_interval = null`
+- Recurring mission:
+  - `is_recurring = true`
+  - `recurrence_unit` supports `hour` or `day`
+  - `recurrence_interval` must be greater than `0`
+- Backward compatibility:
+  - old recurring missions without recurrence fields are treated as `day + 1`
+
+Example recurring mission request:
+```json
+{
+  "uav_id": 1,
+  "mission_name": "Dock Patrol",
+  "schedule": "2026-03-14T08:00:00Z",
+  "is_recurring": true,
+  "recurrence_unit": "hour",
+  "recurrence_interval": 4,
+  "status": "Waiting",
+  "waypoints": [
+    {
+      "sequence_order": 1,
+      "latitude": -6.2,
+      "longitude": 106.8,
+      "altitude": 20,
+      "action": "hold",
+      "action_duration": 5
+    }
+  ]
+}
+```
+
+Runtime states:
+- `PreparingDock`
+- `SafeToFly`
+- `Takeoff`
+- `DockConfirmed`
+- `Completed`
+- `Failed`
+- `Aborted`
+
+Normal transition flow:
+1. `PreparingDock`
+2. `SafeToFly`
+3. `Takeoff`
+4. `DockConfirmed`
+5. `Completed`
+
+Terminal states:
+- `Completed`
+- `Failed`
+- `Aborted`
+
+Transition rules:
+- `PreparingDock -> SafeToFly`
+- `SafeToFly -> Takeoff`
+- `Takeoff -> DockConfirmed`
+- `DockConfirmed -> Completed`
+- Any non-terminal state can transition to `Failed` or `Aborted`
+
+Automatic recovery:
+- The backend runs a background sweeper every minute to close stale non-terminal mission runs automatically.
+- `Waiting` missions that stay overdue for more than `1m` are also recovered automatically:
+  - recurring missions stay `Waiting` and move directly to the next future `schedule`
+  - non-recurring missions are marked `Failed`
+- Timeout policy:
+  - `PreparingDock` older than `5m` -> `Aborted` with `MISSION_TIMEOUT`
+  - `SafeToFly` older than `8m` -> `Aborted` with `MISSION_TIMEOUT`
+  - `Takeoff` older than `30m` -> `Failed` with `MISSION_TIMEOUT`
+  - `DockConfirmed` older than `5m` without `complete` -> `Failed` with `MISSION_TIMEOUT`
+- Recurring missions that end as `Completed`, `Failed`, or `Aborted` are re-queued by setting the mission template back to `Waiting` and recalculating the next schedule.
 
 Start Response:
 ```json
 {
   "history_id": 123,
-  "status": "InProgress"
+  "status": "PreparingDock"
 }
 ```
 
-Complete Request:
+Update state request:
+`PATCH /mission-history/123/state`
+
+```json
+{
+  "status": "SafeToFly",
+  "message": "Dock prepared and launch area clear"
+}
+```
+
+Failure / abort example:
+```json
+{
+  "status": "Failed",
+  "failure_code": "BATTERY_LOW",
+  "failure_reason": "Battery too low for launch"
+}
+```
+
+Complete request:
 `POST /mission-history/123/complete`
+
+Complete notes:
+- `complete` only succeeds when the current mission history status is `DockConfirmed`
+- Response `status` is the mission-history runtime status and will be `Completed`
+- Response `mission_status` is the mission template status in `missions`
+- For recurring missions, `mission_status` returns to `Waiting`
+- For recurring missions, the response may also include `next_schedule`
+- For recurring missions, `schedule` is recalculated from the recurrence rule:
+  - `hour`: add `recurrence_interval` hours until the next future slot
+  - `day`: add `recurrence_interval` days until the next future slot
 
 Typical flow:
 1. Call `POST /missions/{id}/start` → store `history_id`.
-2. Fly mission + upload media (use `history_id` + `mission_id`).
-3. Call `POST /mission-history/{history_id}/complete`.
+2. Docking updates run to `SafeToFly` with `PATCH /mission-history/{history_id}/state`.
+3. Drone updates run to `Takeoff`.
+4. Docking detects drone return and updates run to `DockConfirmed`.
+5. Call `POST /mission-history/{history_id}/complete`.
+6. Upload media to `POST /mission-history/{history_id}/media` as needed.
 
 List history (paginated):
 ```
@@ -498,22 +846,122 @@ Notes:
 - Default `page=1`, `limit=20`
 - Max `limit=100`
 - Optional filter: `mission_id`
+- Each item includes `media_count` so the UI can show how many uploaded files belong to that mission run
 
 Fields:
 - `started_at`: time when `start` was called.
-- `completed_at`: time when `complete` was called (null while `InProgress`).
+- `completed_at`: time when the run reached a terminal status (`Completed`, `Failed`, or `Aborted`).
+- `media_count`: total number of records in `mission_media` for that `history_id`
 
-### Upload Media (image/video, optional mission_id)
-- `POST /upload-footage` (multipart form)
-Fields:
-- `uav_id` (required)
-- `mission_id` (optional, link media to mission history)
-- `history_id` (required if `mission_id` is provided)
-- `file` (required)
+Current mission history state:
+```text
+GET /mission-history/123/state
+```
+
+Example response:
+```json
+{
+  "history_id": 123,
+  "mission_id": 10,
+  "user_id": 3,
+  "uav_id": 2,
+  "docking_id": 5,
+  "status": "SafeToFly",
+  "is_terminal": false,
+  "failure_code": null,
+  "failure_reason": null,
+  "completed_at": null,
+  "last_event_at": "2026-03-13T10:02:00Z"
+}
+```
+
 Notes:
-- Accepted image types: `.jpg`, `.jpeg`, `.png`, `.webp`.
-- Accepted video types: `.mp4`, `.m4`, `.m4v`.
-- Each upload is also appended to `mission_history_media`.
+- This endpoint is read-only and returns the latest persisted runtime status in `mission_history`.
+- Access rules follow the same ownership/device checks as `PATCH /mission-history/{history_id}/state`.
+- `last_event_at` is the latest timestamp recorded in `mission_event` for that run, or `null` if no event exists yet.
+
+Mission event timeline:
+```text
+GET /mission-history/123/events
+```
+
+Example response:
+```json
+{
+  "history_id": 123,
+  "count": 3,
+  "items": [
+    {
+      "id": 1001,
+      "history_id": 123,
+      "from_state": null,
+      "to_state": "PreparingDock",
+      "result": null,
+      "failure_code": null,
+      "message": null,
+      "is_terminal": false,
+      "created_at": "2026-03-13T10:00:00Z"
+    },
+    {
+      "id": 1002,
+      "history_id": 123,
+      "from_state": "PreparingDock",
+      "to_state": "SafeToFly",
+      "result": null,
+      "failure_code": null,
+      "message": "Dock prepared and launch area clear",
+      "is_terminal": false,
+      "created_at": "2026-03-13T10:02:00Z"
+    }
+  ]
+}
+```
+
+### Mission Media Uploads
+- `POST /mission-history/{history_id}/media` uploads image/video files for one mission run.
+- `GET /mission-history/{history_id}/media` lists files already attached to that mission run.
+
+Upload request:
+- Content type: `multipart/form-data`
+- Supported file fields:
+  - `files` for one or more files
+  - `file` as a single-file compatibility alias
+- Optional text field: `event_id`
+  - use this when a file should be attached to a specific `mission_event`
+  - omit it when the file belongs to the mission run in general
+
+Behavior:
+- Media is attached to `mission_history`, not directly to `missions`
+- There is no application-level limit on how many files a mission run can have
+- A single upload request may contain one file or multiple files
+- Files are stored under `./uploads/footages/<history_id>/...`
+- The API returns:
+  - `file_path` for server-side/local reference
+  - `public_path` for direct public view/stream without auth
+  - `download_path` for forced file download without auth
+
+Accepted file types:
+- Images: `.jpg`, `.jpeg`, `.png`, `.webp`
+- Videos: `.mp4`, `.m4`, `.m4v`
+
+Example upload:
+```text
+POST /mission-history/123/media
+```
+Form fields:
+- `files`: `launch.jpg`
+- `files`: `return.mp4`
+- `event_id`: `456` (optional)
+
+Example list:
+```text
+GET /mission-history/123/media
+GET /mission-history/123/media?event_id=456
+```
+
+Public media access:
+- `GET /footages/...` serves the uploaded image/video without auth
+- `GET /mission-media/{media_id}/download` downloads the file as an attachment without auth
 
 ### Troubleshooting
 - **No WS data**: ensure the client sent the subscribe message.
