@@ -52,6 +52,7 @@ func registerMissionRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/mission-history/{history_id}/media", h.UploadMissionMedia).Methods("POST")
 	router.HandleFunc("/mission-history", h.ListMissionHistory).Methods("GET")
 	router.HandleFunc("/mission-history/me", h.ListMissionHistory).Methods("GET")
+	router.HandleFunc("/mission/current", h.GetCurrentMissionForDevice).Methods("GET")
 	router.HandleFunc("/missions/waiting/device", h.GetNextWaitingMissionForDevice).Methods("GET")
 	router.HandleFunc("/missions/safe-to-fly/device", h.GetSafeToFlyMissionForDevice).Methods("GET")
 	router.HandleFunc("/missions/next/{user_id}", h.GetLastMission).Methods("GET")

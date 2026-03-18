@@ -1108,6 +1108,43 @@
                     ]
                 },
                 {
+                    "name": "Get Current Mission (Device)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/mission/current",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mission",
+                                "current"
+                            ]
+                        }
+                    },
+                    "description": "Returns the current active mission_history for the authenticated device token, regardless of runtime state. Response includes has_active_mission and, when active, mission_id, history_id, mission_history_id, and status.",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const data = pm.response.json();",
+                                    "if (data && (data.history_id || data.mission_history_id)) {",
+                                    "  pm.collectionVariables.set('historyId', data.history_id || data.mission_history_id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
                     "name": "Start Mission",
                     "request": {
                         "method": "POST",

@@ -30,6 +30,51 @@ type missionLookupResponse struct {
 	RuntimeStatus *string `json:"runtime_status,omitempty"`
 }
 
+type currentMissionResponse struct {
+	ScopeType        string  `json:"scope_type"`
+	UavID            int     `json:"uav_id"`
+	DockingID        *int    `json:"docking_id,omitempty"`
+	HasActiveMission bool    `json:"has_active_mission"`
+	MissionID        *int    `json:"mission_id,omitempty"`
+	HistoryID        *int    `json:"history_id,omitempty"`
+	MissionHistoryID *int    `json:"mission_history_id,omitempty"`
+	Status           *string `json:"status,omitempty"`
+}
+
+type currentMissionLookupResult struct {
+	HistoryID int
+	MissionID int
+	DockingID *int
+	Status    string
+	Found     bool
+}
+
+func buildCurrentMissionResponse(scopeType string, uavID int, tokenDockingID *int, result currentMissionLookupResult) currentMissionResponse {
+	response := currentMissionResponse{
+		ScopeType:        scopeType,
+		UavID:            uavID,
+		DockingID:        tokenDockingID,
+		HasActiveMission: result.Found,
+	}
+	if !result.Found {
+		return response
+	}
+
+	historyID := result.HistoryID
+	missionID := result.MissionID
+	status := result.Status
+
+	response.HistoryID = &historyID
+	response.MissionHistoryID = &historyID
+	response.MissionID = &missionID
+	response.Status = &status
+	if result.DockingID != nil {
+		response.DockingID = result.DockingID
+	}
+
+	return response
+}
+
 func normalizeMissionRecurrence(isRecurring bool, unit *string, interval *int) (*string, *int, error) {
 	if !isRecurring {
 		return nil, nil, nil
@@ -1103,6 +1148,22 @@ func (h *Handlers) GetSafeToFlyMissionForDevice(w http.ResponseWriter, r *http.R
 	})
 }
 
+func (h *Handlers) GetCurrentMissionForDevice(w http.ResponseWriter, r *http.Request) {
+	scopeType, uavID, dockingID, ok := h.resolveMissionDeviceContext(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := h.findCurrentMissionByDeviceScope(scopeType, uavID, dockingID)
+	if err != nil {
+		log.Printf("Error loading current mission for device scope %s: %v", scopeType, err)
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load current mission"})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, buildCurrentMissionResponse(scopeType, uavID, dockingID, result))
+}
+
 func parseSchedule(raw string) (time.Time, bool) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -1188,38 +1249,99 @@ func parsePositiveMuxInt(w http.ResponseWriter, r *http.Request, key, message st
 }
 
 func (h *Handlers) resolveMissionLookupUavIDFromDevice(w http.ResponseWriter, r *http.Request) (int, bool) {
+	_, uavID, _, ok := h.resolveMissionDeviceContext(w, r)
+	if !ok {
+		return 0, false
+	}
+	return uavID, true
+}
+
+func (h *Handlers) resolveMissionDeviceContext(w http.ResponseWriter, r *http.Request) (string, int, *int, bool) {
 	deviceClaims, ok := auth.DeviceClaimsFromContext(r.Context())
 	if !ok || deviceClaims == nil {
 		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "device token required"})
-		return 0, false
+		return "", 0, nil, false
 	}
 
 	switch deviceClaims.ScopeType {
 	case auth.DeviceScopeUav:
 		if deviceClaims.UavID == nil || *deviceClaims.UavID <= 0 {
 			respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
-			return 0, false
+			return "", 0, nil, false
 		}
-		return *deviceClaims.UavID, true
+		return auth.DeviceScopeUav, *deviceClaims.UavID, nil, true
 	case auth.DeviceScopeDocking:
 		if deviceClaims.DockingID == nil || *deviceClaims.DockingID <= 0 {
 			respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
-			return 0, false
+			return "", 0, nil, false
 		}
 		uavID, err := h.resolveDockingUavID(*deviceClaims.DockingID)
 		if err != nil {
 			if err.Error() == "docking not found" {
 				respondWithJSON(w, http.StatusNotFound, map[string]string{"message": "Docking not found"})
-				return 0, false
+				return "", 0, nil, false
 			}
 			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error"})
-			return 0, false
+			return "", 0, nil, false
 		}
-		return uavID, true
+		dockingID := *deviceClaims.DockingID
+		return auth.DeviceScopeDocking, uavID, &dockingID, true
 	default:
 		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
-		return 0, false
+		return "", 0, nil, false
 	}
+}
+
+func (h *Handlers) findCurrentMissionByDeviceScope(scopeType string, uavID int, dockingID *int) (currentMissionLookupResult, error) {
+	result := currentMissionLookupResult{}
+
+	var (
+		row *sql.Row
+		arg interface{}
+	)
+	switch scopeType {
+	case auth.DeviceScopeDocking:
+		if dockingID == nil || *dockingID <= 0 {
+			return result, fmt.Errorf("missing docking_id for docking scope")
+		}
+		arg = *dockingID
+		row = h.DB.QueryRow(`
+	        SELECT id, mission_id, docking_id, status
+	        FROM mission_history
+	        WHERE docking_id = $1
+	          AND completed_at IS NULL
+	          AND status NOT IN ('Completed', 'Failed', 'Aborted')
+	        ORDER BY started_at DESC NULLS LAST, created_at DESC
+	        LIMIT 1`, arg)
+	case auth.DeviceScopeUav:
+		arg = uavID
+		row = h.DB.QueryRow(`
+	        SELECT id, mission_id, docking_id, status
+	        FROM mission_history
+	        WHERE uav_id = $1
+	          AND completed_at IS NULL
+	          AND status NOT IN ('Completed', 'Failed', 'Aborted')
+	        ORDER BY started_at DESC NULLS LAST, created_at DESC
+	        LIMIT 1`, arg)
+	default:
+		return result, fmt.Errorf("unsupported scope type %q", scopeType)
+	}
+
+	var nullableDockingID sql.NullInt32
+	err := row.Scan(&result.HistoryID, &result.MissionID, &nullableDockingID, &result.Status)
+	if err == sql.ErrNoRows {
+		return result, nil
+	}
+	if err != nil {
+		return result, err
+	}
+	if nullableDockingID.Valid {
+		value := int(nullableDockingID.Int32)
+		result.DockingID = &value
+	}
+	result.Found = true
+
+	return result, nil
 }
 
 func (h *Handlers) findNextWaitingMissionByUavID(uavID int) (models.Mission, bool, error) {

@@ -633,6 +633,7 @@ Mission mutation rules:
 - Mission polling for device services is split into two recommended endpoints:
   - `GET /missions/waiting/device` for docking services looking for the next `Waiting` mission
   - `GET /missions/safe-to-fly/device` for drone services looking for the active `SafeToFly` mission run
+- `GET /mission/current` returns the current active `mission_history` for the authenticated device token, regardless of runtime state.
 - `GET /device-context` can be used once at service startup to discover the IDs associated with the current device token.
 - `POST /missions/{id}/start` creates a mission run in `mission_history` with initial status `PreparingDock`.
 - `GET /mission-history/{history_id}/state` returns the current runtime state for one mission run.
@@ -646,6 +647,11 @@ Mission polling responses:
 - `GET /missions/safe-to-fly/device` also includes:
   - `history_id`
   - `runtime_status`
+- `GET /mission/current` is device-token only and returns:
+  - `has_active_mission`
+  - `history_id`
+  - `mission_history_id` (alias of `history_id`)
+  - `status` (current runtime status from `mission_history`)
 - Both device polling endpoints derive the UAV from `X-Device-Token`:
   - UAV token -> direct `uav_id`
   - docking token -> backend resolves `uav_id` from `docking_id`
@@ -705,6 +711,30 @@ Example SafeToFly mission response:
   ],
   "history_id": 123,
   "runtime_status": "SafeToFly"
+}
+```
+
+Example current mission response when active:
+```json
+{
+  "scope_type": "docking",
+  "uav_id": 2,
+  "docking_id": 5,
+  "has_active_mission": true,
+  "mission_id": 10,
+  "history_id": 123,
+  "mission_history_id": 123,
+  "status": "Takeoff"
+}
+```
+
+Example current mission response when idle:
+```json
+{
+  "scope_type": "docking",
+  "uav_id": 2,
+  "docking_id": 5,
+  "has_active_mission": false
 }
 ```
 
