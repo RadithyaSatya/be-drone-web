@@ -18,10 +18,6 @@ const (
 	defaultUsersPage         = 1
 	defaultUsersLimit        = 20
 	maxUsersLimit            = 100
-	defaultBootstrapKey      = "change-me"
-	defaultBootstrapEmail    = "default@example.com"
-	defaultBootstrapUsername = "default"
-	defaultBootstrapPassword = "change-me"
 )
 
 type createUserRequest struct {
@@ -35,15 +31,6 @@ type createUserRequest struct {
 }
 
 type createUserResponse struct {
-	ID      int    `json:"id"`
-	Message string `json:"message"`
-}
-
-type bootstrapUserRequest struct {
-	Key string `json:"key"`
-}
-
-type bootstrapUserResponse struct {
 	ID      int    `json:"id"`
 	Message string `json:"message"`
 }
@@ -122,74 +109,6 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, createUserResponse{
-		ID:      id,
-		Message: "User created successfully",
-	})
-}
-
-func (h *Handlers) CreateDefaultUser(w http.ResponseWriter, r *http.Request) {
-	var req bootstrapUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
-		return
-	}
-
-	if strings.TrimSpace(req.Key) == "" || req.Key != defaultBootstrapKey {
-		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid key"})
-		return
-	}
-
-	var existingID int
-	err := h.DB.QueryRow(
-		`SELECT id FROM users WHERE username = $1 OR email = $2`,
-		defaultBootstrapUsername,
-		defaultBootstrapEmail,
-	).Scan(&existingID)
-	if err == nil {
-		respondWithJSON(w, http.StatusConflict, bootstrapUserResponse{
-			ID:      existingID,
-			Message: "account default sudah ada",
-		})
-		return
-	}
-	if err != sql.ErrNoRows {
-		log.Printf("Failed to check default user: %v", err)
-		respondWithErrorDetail(w, http.StatusInternalServerError, "Failed to create user", err)
-		return
-	}
-
-	hashed, err := hashPassword(defaultBootstrapPassword)
-	if err != nil {
-		respondWithErrorDetail(w, http.StatusInternalServerError, "failed to hash password", err)
-		return
-	}
-
-	var id int
-	query := `
-		INSERT INTO users (email, dob, phone, username, pilot_cert, password_hash)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id`
-	err = h.DB.QueryRow(
-		query,
-		defaultBootstrapEmail,
-		sql.NullTime{},
-		sql.NullString{},
-		defaultBootstrapUsername,
-		sql.NullString{},
-		hashed,
-	).Scan(&id)
-	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			respondWithJSON(w, http.StatusConflict, bootstrapUserResponse{
-				Message: "account default sudah ada",
-			})
-			return
-		}
-		respondWithErrorDetail(w, http.StatusInternalServerError, "Failed to create user", err)
-		return
-	}
-
-	respondWithJSON(w, http.StatusCreated, bootstrapUserResponse{
 		ID:      id,
 		Message: "User created successfully",
 	})

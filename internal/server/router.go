@@ -38,7 +38,6 @@ func SetupRouter(h *handlers.Handlers, wsHandler http.Handler) *mux.Router {
 }
 
 func registerMissionRoutes(router *mux.Router, h *handlers.Handlers) {
-	router.HandleFunc("/missions", h.GetAllMissions).Methods("GET")
 	router.HandleFunc("/missions/me", h.GetMissionsForCurrentUser).Methods("GET")
 	router.HandleFunc("/missions/{id}", h.GetMissionByID).Methods("GET")
 	router.HandleFunc("/missions/{id}", h.UpdateMission).Methods("PATCH")
@@ -90,7 +89,6 @@ func registerRealtimeWebsocketRoutes(router *mux.Router, wsHandler http.Handler)
 
 func registerAuthRoutes(router *mux.Router, h *handlers.Handlers) {
 	router.HandleFunc("/auth/login", h.Login).Methods("POST")
-	router.HandleFunc("/bootstrap/default-user", h.CreateDefaultUser).Methods("POST")
 }
 
 func registerUserRoutes(router *mux.Router, h *handlers.Handlers) {

@@ -1,17 +1,17 @@
 {
     "info": {
         "name": "XFlight Backend",
-        "description": "Postman collection for XFlight backend endpoints.",
+        "description": "Postman collection for XFlight backend endpoints. The folders are ordered by workflow: authenticate first, then set up device identity, manage resources, run missions, and inspect realtime/runtime data.",
         "_postman_id": "7c0cb8c2-9fb1-4d15-98a5-4e4f1c6d2a5b",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "item": [
         {
-            "name": "Auth",
-            "description": "Login to obtain JWT and generate short-lived WS tokens.",
+            "name": "01 Auth & Session",
+            "description": "Start here. Login, mint WS tokens, and end sessions.",
             "item": [
                 {
-                    "name": "Login",
+                    "name": "Login (Seed User)",
                     "request": {
                         "method": "POST",
                         "header": [
@@ -22,7 +22,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"username\": \"user1\",\n  \"password\": \"secret123\"\n}"
+                            "raw": "{\n  \"username\": \"user\",\n  \"password\": \"password\"\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/auth/login",
@@ -94,619 +94,81 @@
                     ]
                 },
                 {
-                    "name": "Bootstrap Default User",
+                    "name": "Logout",
                     "request": {
                         "method": "POST",
                         "header": [
                             {
-                                "key": "Content-Type",
-                                "value": "application/json"
+                                "key": "Authorization",
+                                "value": "Bearer {{authToken}}"
+                            },
+                            {
+                                "key": "X-Device-Token",
+                                "value": "{{deviceToken}}",
+                                "disabled": true
                             }
                         ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"key\": \"change-me\"\n}"
-                        },
                         "url": {
-                            "raw": "{{baseUrl}}/bootstrap/default-user",
+                            "raw": "{{baseUrl}}/auth/logout",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
-                                "bootstrap",
-                                "default-user"
+                                "auth",
+                                "logout"
                             ]
                         },
-                        "description": "Create default user using static key. Returns 409 if already exists."
+                        "description": "Invalidates the current device token when authenticated by X-Device-Token. With JWT, this returns a success response without server-side token revocation."
                     }
                 }
             ]
         },
         {
-            "name": "Users",
-            "description": "User management endpoints (requires auth).",
+            "name": "02 Device Identity",
+            "description": "Device-token setup and identity discovery for UAV and docking services.",
             "item": [
                 {
-                    "name": "Register User",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"email\": \"user@example.com\",\n  \"dob\": \"1990-01-01\",\n  \"phone\": \"+628123456789\",\n  \"username\": \"user1\",\n  \"pilot_cert\": \"CERT-001\",\n  \"password\": \"secret123\"\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/register-user",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "register-user"
-                            ]
-                        },
-                        "description": "Create new user. Requires auth (JWT or device token)."
-                    }
-                },
-                {
-                    "name": "Get Users (Paginated)",
+                    "name": "Get Device Context",
                     "request": {
                         "method": "GET",
                         "header": [
                             {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
                                 "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
+                                "value": "{{deviceToken}}"
                             }
                         ],
                         "url": {
-                            "raw": "{{baseUrl}}/users?page={{page}}&limit={{limit}}",
+                            "raw": "{{baseUrl}}/device-context",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
-                                "users"
-                            ],
-                            "query": [
-                                {
-                                    "key": "page",
-                                    "value": "{{page}}"
-                                },
-                                {
-                                    "key": "limit",
-                                    "value": "{{limit}}"
-                                }
-                            ]
-                        },
-                        "description": "List users with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
-                    }
-                },
-                {
-                    "name": "Update My Profile",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"email\": \"new@example.com\",\n  \"username\": \"user1\",\n  \"dob\": \"1990-01-01\",\n  \"phone\": \"+628123456789\",\n  \"pilot_cert\": \"CERT-001\"\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/users/me",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "users",
-                                "me"
-                            ]
-                        },
-                        "description": "Update current user's profile. JWT only (device token not supported). Send only fields to update; empty string clears dob/phone/pilot_cert."
-                    }
-                },
-                {
-                    "name": "Get My Profile",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/users/me",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "users",
-                                "me"
-                            ]
-                        },
-                        "description": "Get current user's profile. JWT only (device token not supported)."
-                    }
-                },
-                {
-                    "name": "Change My Password",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"current_password\": \"oldpass123\",\n  \"new_password\": \"newpass123\"\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/users/me/password",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "users",
-                                "me",
-                                "password"
-                            ]
-                        },
-                        "description": "Change current user's password. JWT only (device token not supported)."
-                    }
-                }
-            ]
-        },
-        {
-            "name": "UAVs",
-            "description": "UAV management endpoints (requires auth).",
-            "item": [
-                {
-                    "name": "Create UAV",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"serial_number\": \"SN-001\",\n  \"name\": \"Falcon-1\",\n  \"model\": \"XF-200\",\n  \"firmware_version\": \"1.0.0\",\n  \"camera_spec\": \"4K\",\n  \"image_url\": \"https://example.com/drone.jpg\",\n  \"max_range_meter\": 5000,\n  \"max_flight_time_min\": 45,\n  \"is_active\": true\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs"
-                            ]
-                        },
-                        "description": "Create a new UAV."
-                    }
-                },
-                {
-                    "name": "Assign UAV (By Serial)",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"serial_number\": \"SN-001\"\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs/assign",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs",
-                                "assign"
-                            ]
-                        },
-                        "description": "Assign (claim) a UAV to the authenticated user by serial_number."
-                    }
-                },
-                {
-                    "name": "Get UAVs (Paginated)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs?page={{page}}&limit={{limit}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs"
-                            ],
-                            "query": [
-                                {
-                                    "key": "page",
-                                    "value": "{{page}}"
-                                },
-                                {
-                                    "key": "limit",
-                                    "value": "{{limit}}"
-                                }
-                            ]
-                        },
-                        "description": "List UAVs with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
-                    }
-                },
-                {
-                    "name": "Get My UAVs (Paginated)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs/me?page={{page}}&limit={{limit}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs",
-                                "me"
-                            ],
-                            "query": [
-                                {
-                                    "key": "page",
-                                    "value": "{{page}}"
-                                },
-                                {
-                                    "key": "limit",
-                                    "value": "{{limit}}"
-                                }
-                            ]
-                        },
-                        "description": "List UAVs assigned to the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
-                    }
-                },
-                {
-                    "name": "Get My UAVs (Dropdown)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs/me/dropdown",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs",
-                                "me",
-                                "dropdown"
+                                "device-context"
                             ]
                         }
                     },
-                    "description": "List current user's UAVs for dropdown. Each item returns id, name, camera_spec, and optional primary_docking (id, name, location_name, latitude, longitude) resolved from the primary active docking."
-                },
-                {
-                    "name": "Get UAV By ID",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
+                    "description": "Returns the identity derived from X-Device-Token. Use this as a startup/bootstrap call so device services can discover scope_type, docking_id, and resolved_uav_id without hardcoding IDs.",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const data = pm.response.json();",
+                                    "if (data && data.uav_id) {",
+                                    "  pm.collectionVariables.set('uavId', data.uav_id);",
+                                    "}",
+                                    "if (data && data.docking_id) {",
+                                    "  pm.collectionVariables.set('dockingId', data.docking_id);",
+                                    "}",
+                                    "if (data && data.resolved_uav_id) {",
+                                    "  pm.collectionVariables.set('resolvedUavId', data.resolved_uav_id);",
+                                    "}"
+                                ]
                             }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs/{{uavId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs",
-                                "{{uavId}}"
-                            ]
                         }
-                    },
-                    "description": "Get UAV detail including latest status and dockings (with docking_status if available)."
+                    ]
                 },
-                {
-                    "name": "Update UAV",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"name\": \"Falcon-1A\",\n  \"firmware_version\": \"1.0.1\",\n  \"image_url\": \"https://example.com/drone-updated.jpg\",\n  \"is_active\": true\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs/{{uavId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs",
-                                "{{uavId}}"
-                            ]
-                        },
-                        "description": "Update UAV fields (partial update)."
-                    }
-                },
-                {
-                    "name": "Upload UAV Image",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "body": {
-                            "mode": "formdata",
-                            "formdata": [
-                                {
-                                    "key": "file",
-                                    "type": "file",
-                                    "src": ""
-                                }
-                            ]
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs/{{uavId}}/image",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs",
-                                "{{uavId}}",
-                                "image"
-                            ]
-                        }
-                    },
-                    "description": "Upload UAV image. Automatically updates image_url."
-                },
-                {
-                    "name": "Delete UAV",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/uavs/{{uavId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "uavs",
-                                "{{uavId}}"
-                            ]
-                        },
-                        "description": "Soft delete UAV by id."
-                    }
-                }
-            ]
-        },
-        {
-            "name": "Docking",
-            "description": "Docking management endpoints (requires auth).",
-            "item": [
-                {
-                    "name": "Create Docking",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"name\": \"Docking A\",\n  \"location_name\": \"Hangar 1\",\n  \"latitude\": -6.2,\n  \"longitude\": 106.8,\n  \"is_primary\": true,\n  \"is_active\": true\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/dockings",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "dockings"
-                            ]
-                        }
-                    },
-                    "description": "Create a docking record for a UAV. Only owner JWT is allowed."
-                },
-                {
-                    "name": "Update Docking",
-                    "request": {
-                        "method": "PATCH",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"name\": \"Docking A (Updated)\",\n  \"is_primary\": true,\n  \"is_active\": true\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/dockings/{{dockingId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "dockings",
-                                "{{dockingId}}"
-                            ]
-                        }
-                    },
-                    "description": "Update docking fields. `uav_id` cannot be updated."
-                },
-                {
-                    "name": "Delete Docking",
-                    "request": {
-                        "method": "DELETE",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/dockings/{{dockingId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "dockings",
-                                "{{dockingId}}"
-                            ]
-                        }
-                    },
-                    "description": "Delete a docking record by ID."
-                }
-            ]
-        },
-        {
-            "name": "Device Tokens",
-            "description": "Generate per-device tokens (requires owner JWT). Tokens are returned once.",
-            "item": [
                 {
                     "name": "Create UAV Device Token",
                     "request": {
@@ -770,159 +232,38 @@
                         }
                     },
                     "description": "Create a device token scoped to a docking. Returns token once (replaces previous token)."
-                },
-                {
-                    "name": "Get Device Context",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/device-context",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "device-context"
-                            ]
-                        }
-                    },
-                    "description": "Returns the identity derived from X-Device-Token. Use this as a startup/bootstrap call so device services can discover scope_type, docking_id, and resolved_uav_id without hardcoding IDs.",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "type": "text/javascript",
-                                "exec": [
-                                    "const data = pm.response.json();",
-                                    "if (data && data.uav_id) {",
-                                    "  pm.collectionVariables.set('uavId', data.uav_id);",
-                                    "}",
-                                    "if (data && data.docking_id) {",
-                                    "  pm.collectionVariables.set('dockingId', data.docking_id);",
-                                    "}",
-                                    "if (data && data.resolved_uav_id) {",
-                                    "  pm.collectionVariables.set('resolvedUavId', data.resolved_uav_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ]
                 }
             ]
         },
         {
-            "name": "Missions",
-            "description": "Mission CRUD and queries.",
+            "name": "03 Users",
+            "description": "User profile and user management endpoints.",
             "item": [
                 {
-                    "name": "Get All Missions",
+                    "name": "Get My Profile",
                     "request": {
                         "method": "GET",
                         "header": [
                             {
                                 "key": "Authorization",
                                 "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
                             }
                         ],
                         "url": {
-                            "raw": "{{baseUrl}}/missions",
+                            "raw": "{{baseUrl}}/users/me",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
-                                "missions"
+                                "users",
+                                "me"
                             ]
-                        }
+                        },
+                        "description": "Get current user's profile. JWT only (device token not supported)."
                     }
                 },
                 {
-                    "name": "My Missions (Paginated)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/missions/me?page={{page}}&limit={{limit}}&uav_id={{uavId}}&date={{missionDate}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "missions",
-                                "me"
-                            ],
-                            "query": [
-                                {
-                                    "key": "page",
-                                    "value": "{{page}}"
-                                },
-                                {
-                                    "key": "limit",
-                                    "value": "{{limit}}"
-                                },
-                                {
-                                    "key": "uav_id",
-                                    "value": "{{uavId}}",
-                                    "disabled": true
-                                },
-                                {
-                                    "key": "date",
-                                    "value": "{{missionDate}}",
-                                    "disabled": true
-                                }
-                            ]
-                        }
-                    },
-                    "description": "Returns missions for the authenticated user (paginated). Optional `uav_id` filter and optional exact `date` filter (`YYYY-MM-DD`, matched against the schedule date prefix). Includes waypoint_count and uav details; waypoints are not returned."
-                },
-                {
-                    "name": "Get Mission By ID",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/missions/{{missionId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "missions",
-                                "{{missionId}}"
-                            ]
-                        }
-                    },
-                    "description": "Returns one mission by ID, including its full waypoint list."
-                },
-                {
-                    "name": "Update Mission",
+                    "name": "Update My Profile",
                     "request": {
                         "method": "PATCH",
                         "header": [
@@ -937,57 +278,29 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"mission_name\": \"Test Mission Updated\",\n  \"schedule\": \"2026-03-14T12:00:00Z\",\n  \"is_recurring\": true,\n  \"recurrence_unit\": \"hour\",\n  \"recurrence_interval\": 6,\n  \"status\": \"Waiting\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 20.0,\n      \"action\": \"hold\",\n      \"action_duration\": 10\n    }\n  ]\n}"
+                            "raw": "{\n  \"email\": \"new@example.com\",\n  \"username\": \"user1\",\n  \"dob\": \"1990-01-01\",\n  \"phone\": \"+628123456789\",\n  \"pilot_cert\": \"CERT-001\"\n}"
                         },
                         "url": {
-                            "raw": "{{baseUrl}}/missions/{{missionId}}",
+                            "raw": "{{baseUrl}}/users/me",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
-                                "missions",
-                                "{{missionId}}"
+                                "users",
+                                "me"
                             ]
-                        }
-                    },
-                    "description": "Updates a mission. Send only fields to change. If `waypoints` is provided, all existing waypoints are replaced. Rejected with 409 if the mission has an active run."
+                        },
+                        "description": "Update current user's profile. JWT only (device token not supported). Send only fields to update; empty string clears dob/phone/pilot_cert."
+                    }
                 },
                 {
-                    "name": "Delete Mission",
+                    "name": "Change My Password",
                     "request": {
-                        "method": "DELETE",
+                        "method": "PATCH",
                         "header": [
                             {
                                 "key": "Authorization",
                                 "value": "Bearer {{authToken}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/missions/{{missionId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "missions",
-                                "{{missionId}}"
-                            ]
-                        }
-                    },
-                    "description": "Soft-deletes a mission. Rejected with 409 if the mission has an active run."
-                },
-                {
-                    "name": "Register Mission",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
                             },
                             {
                                 "key": "Content-Type",
@@ -996,22 +309,24 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"mission_name\": \"Test Mission\",\n  \"schedule\": \"2026-03-14T08:00:00Z\",\n  \"is_recurring\": true,\n  \"recurrence_unit\": \"hour\",\n  \"recurrence_interval\": 4,\n  \"status\": \"Waiting\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 10.0,\n      \"action\": \"hold\",\n      \"action_duration\": 5\n    }\n  ]\n}"
+                            "raw": "{\n  \"current_password\": \"oldpass123\",\n  \"new_password\": \"newpass123\"\n}"
                         },
                         "url": {
-                            "raw": "{{baseUrl}}/register-mission",
+                            "raw": "{{baseUrl}}/users/me/password",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
-                                "register-mission"
+                                "users",
+                                "me",
+                                "password"
                             ]
                         },
-                        "description": "Creates mission for the authenticated user. user_id is inferred from JWT. Recurring missions may include `recurrence_unit` (`hour` or `day`) and `recurrence_interval` (> 0). If `is_recurring=true` and those fields are omitted, the backend falls back to daily recurrence every 1 day."
+                        "description": "Change current user's password. JWT only (device token not supported)."
                     }
                 },
                 {
-                    "name": "Get Missions By User (Optional UAV)",
+                    "name": "List Users",
                     "request": {
                         "method": "GET",
                         "header": [
@@ -1026,200 +341,12 @@
                             }
                         ],
                         "url": {
-                            "raw": "{{baseUrl}}/missions/user/{{userId}}",
+                            "raw": "{{baseUrl}}/users?page={{page}}&limit={{limit}}",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
-                                "missions",
-                                "user",
-                                "{{userId}}"
-                            ],
-                            "query": [
-                                {
-                                    "key": "uav_id",
-                                    "value": "{{uavId}}",
-                                    "disabled": true
-                                }
-                            ]
-                        }
-                    }
-                },
-                {
-                    "name": "Get Waiting Mission (Docking / Device)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/missions/waiting/device",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "missions",
-                                "waiting",
-                                "device"
-                            ]
-                        }
-                    },
-                    "description": "Returns the nearest upcoming mission with status Waiting for the authenticated device. The backend derives the UAV from X-Device-Token (UAV token directly, docking token via docking->UAV mapping). Mission responses also include optional recurrence_unit and recurrence_interval."
-                },
-                {
-                    "name": "Get SafeToFly Mission (Drone / Device)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/missions/safe-to-fly/device",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "missions",
-                                "safe-to-fly",
-                                "device"
-                            ]
-                        }
-                    },
-                    "description": "Returns the active mission run whose runtime status is SafeToFly for the authenticated device. The backend derives the UAV from X-Device-Token. Response keeps the same mission fields and waypoint list as the next-mission flow, plus history_id and runtime_status.",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "type": "text/javascript",
-                                "exec": [
-                                    "const data = pm.response.json();",
-                                    "if (data && data.history_id) {",
-                                    "  pm.collectionVariables.set('historyId', data.history_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ]
-                },
-                {
-                    "name": "Get Current Mission (Device)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/mission/current",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission",
-                                "current"
-                            ]
-                        }
-                    },
-                    "description": "Returns the current active mission_history for the authenticated device token, regardless of runtime state. Response includes has_active_mission and, when active, mission_id, history_id, mission_history_id, and status.",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "type": "text/javascript",
-                                "exec": [
-                                    "const data = pm.response.json();",
-                                    "if (data && (data.history_id || data.mission_history_id)) {",
-                                    "  pm.collectionVariables.set('historyId', data.history_id || data.mission_history_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ]
-                },
-                {
-                    "name": "Start Mission",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/missions/{{missionId}}/start",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "missions",
-                                "{{missionId}}",
-                                "start"
-                            ]
-                        },
-                        "description": "Starts a mission run and returns history_id. The new mission_history row begins at status PreparingDock."
-                    },
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "type": "text/javascript",
-                                "exec": [
-                                    "const data = pm.response.json();",
-                                    "if (data && data.history_id) {",
-                                    "  pm.collectionVariables.set('historyId', data.history_id);",
-                                    "}"
-                                ]
-                            }
-                        }
-                    ]
-                }
-            ]
-        },
-        {
-            "name": "Mission History",
-            "description": "Mission run lifecycle and history listings.",
-            "item": [
-                {
-                    "name": "Get My Mission History (Paginated)",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/mission-history/me?page={{page}}&limit={{limit}}&mission_id={{missionId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission-history",
-                                "me"
+                                "users"
                             ],
                             "query": [
                                 {
@@ -1229,160 +356,16 @@
                                 {
                                     "key": "limit",
                                     "value": "{{limit}}"
-                                },
-                                {
-                                    "key": "mission_id",
-                                    "value": "{{missionId}}",
-                                    "disabled": true
                                 }
                             ]
                         },
-                        "description": "List mission history entries for the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page). Optional `mission_id` to filter by mission. Each item also includes `media_count` so the client can show the number of uploaded files for that run."
+                        "description": "List users with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
                     }
                 },
                 {
-                    "name": "List Mission Media",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/media?event_id={{eventId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission-history",
-                                "{{historyId}}",
-                                "media"
-                            ],
-                            "query": [
-                                {
-                                    "key": "event_id",
-                                    "value": "{{eventId}}",
-                                    "disabled": true
-                                }
-                            ]
-                        },
-                        "description": "Lists media files attached to one mission run. Optional `event_id` filters media attached to one mission_event."
-                    }
-                },
-                {
-                    "name": "List Mission Events",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/events",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission-history",
-                                "{{historyId}}",
-                                "events"
-                            ]
-                        }
-                    },
-                    "description": "Lists the event timeline for one mission run, including from_state, to_state, result, failure_code, message, is_terminal, and created_at."
-                },
-                {
-                    "name": "Get Mission State",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/state",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission-history",
-                                "{{historyId}}",
-                                "state"
-                            ]
-                        }
-                    },
-                    "description": "Returns the latest persisted runtime state for one mission run, including status, terminal flag, failure details, completed_at, and last_event_at."
-                },
-                {
-                    "name": "Upload Mission Media",
+                    "name": "Create User",
                     "request": {
                         "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "body": {
-                            "mode": "formdata",
-                            "formdata": [
-                                {
-                                    "key": "event_id",
-                                    "value": "{{eventId}}",
-                                    "type": "text",
-                                    "disabled": true
-                                },
-                                {
-                                    "key": "files",
-                                    "type": "file",
-                                    "src": ""
-                                }
-                            ]
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/media",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission-history",
-                                "{{historyId}}",
-                                "media"
-                            ]
-                        },
-                        "description": "Uploads one or more image/video files to a mission run. Use repeated `files` fields for multi-file upload. Optional `event_id` links the files to a specific mission_event."
-                    }
-                },
-                {
-                    "name": "Update Mission State",
-                    "request": {
-                        "method": "PATCH",
                         "header": [
                             {
                                 "key": "Authorization",
@@ -1400,263 +383,1318 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"status\": \"SafeToFly\",\n  \"message\": \"Dock prepared and launch area clear\"\n}"
+                            "raw": "{\n  \"email\": \"user@example.com\",\n  \"dob\": \"1990-01-01\",\n  \"phone\": \"+628123456789\",\n  \"username\": \"user1\",\n  \"pilot_cert\": \"CERT-001\",\n  \"password\": \"secret123\"\n}"
                         },
                         "url": {
-                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/state",
+                            "raw": "{{baseUrl}}/register-user",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
-                                "mission-history",
-                                "{{historyId}}",
-                                "state"
+                                "register-user"
                             ]
                         },
-                        "description": "Updates the runtime state of a mission run. Valid normal flow: PreparingDock -> SafeToFly -> Takeoff -> DockConfirmed, with optional Takeoff -> InFlight -> DockConfirmed when the drone still has connectivity. Any non-terminal state may also move to Failed or Aborted."
-                    }
-                },
-                {
-                    "name": "Complete Mission (By History ID)",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/mission-history/{{historyId}}/complete",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission-history",
-                                "{{historyId}}",
-                                "complete"
-                            ]
-                        },
-                        "description": "Completes a mission run using history_id from /missions/{id}/start. This endpoint expects the current mission_history status to be DockConfirmed. For recurring missions, the backend sets mission_status back to Waiting and recalculates the next schedule using recurrence_unit/recurrence_interval."
+                        "description": "Create new user. Requires auth (JWT or device token)."
                     }
                 }
             ]
         },
         {
-            "name": "Telemetry",
-            "description": "Mission telemetry batch storage and retrieval.",
+            "name": "04 Fleet",
+            "description": "Manage UAVs and their dockings.",
             "item": [
                 {
-                    "name": "Submit Telemetry Batch",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
+                    "name": "UAVs",
+                    "description": "UAV listing, detail, assignment, and maintenance actions.",
+                    "item": [
+                        {
+                            "name": "List UAVs",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs?page={{page}}&limit={{limit}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "page",
+                                            "value": "{{page}}"
+                                        },
+                                        {
+                                            "key": "limit",
+                                            "value": "{{limit}}"
+                                        }
+                                    ]
+                                },
+                                "description": "List UAVs with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
                             }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"logs\": [\n    {\n      \"mission_id\": {{missionId}},\n      \"uav_id\": {{uavId}},\n      \"waypoints\": 1,\n      \"altitude\": 100,\n      \"coordinate\": \"-6.2,106.8\",\n      \"battery\": 80,\n      \"timestamp\": \"2025-01-01T00:00:00Z\"\n    }\n  ]\n}"
                         },
-                        "url": {
-                            "raw": "{{baseUrl}}/telemetry",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "telemetry"
-                            ]
+                        {
+                            "name": "List My UAVs",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs/me?page={{page}}&limit={{limit}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs",
+                                        "me"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "page",
+                                            "value": "{{page}}"
+                                        },
+                                        {
+                                            "key": "limit",
+                                            "value": "{{limit}}"
+                                        }
+                                    ]
+                                },
+                                "description": "List UAVs assigned to the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
+                            }
+                        },
+                        {
+                            "name": "List My UAVs (Dropdown)",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs/me/dropdown",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs",
+                                        "me",
+                                        "dropdown"
+                                    ]
+                                }
+                            },
+                            "description": "List current user's UAVs for dropdown. Each item returns id, name, camera_spec, and optional primary_docking (id, name, location_name, latitude, longitude) resolved from the primary active docking."
+                        },
+                        {
+                            "name": "Get UAV By ID",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs/{{uavId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs",
+                                        "{{uavId}}"
+                                    ]
+                                }
+                            },
+                            "description": "Get UAV detail including latest status and dockings (with docking_status if available)."
+                        },
+                        {
+                            "name": "Create UAV",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"serial_number\": \"SN-001\",\n  \"name\": \"Falcon-1\",\n  \"model\": \"XF-200\",\n  \"firmware_version\": \"1.0.0\",\n  \"camera_spec\": \"4K\",\n  \"image_url\": \"https://example.com/drone.jpg\",\n  \"max_range_meter\": 5000,\n  \"max_flight_time_min\": 45,\n  \"is_active\": true\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs"
+                                    ]
+                                },
+                                "description": "Create a new UAV."
+                            }
+                        },
+                        {
+                            "name": "Assign UAV By Serial",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"serial_number\": \"SN-001\"\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs/assign",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs",
+                                        "assign"
+                                    ]
+                                },
+                                "description": "Assign (claim) a UAV to the authenticated user by serial_number."
+                            }
+                        },
+                        {
+                            "name": "Update UAV",
+                            "request": {
+                                "method": "PATCH",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"name\": \"Falcon-1A\",\n  \"firmware_version\": \"1.0.1\",\n  \"image_url\": \"https://example.com/drone-updated.jpg\",\n  \"is_active\": true\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs/{{uavId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs",
+                                        "{{uavId}}"
+                                    ]
+                                },
+                                "description": "Update UAV fields (partial update)."
+                            }
+                        },
+                        {
+                            "name": "Upload UAV Image",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "file",
+                                            "type": "file",
+                                            "src": ""
+                                        }
+                                    ]
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs/{{uavId}}/image",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs",
+                                        "{{uavId}}",
+                                        "image"
+                                    ]
+                                }
+                            },
+                            "description": "Upload UAV image. Automatically updates image_url."
+                        },
+                        {
+                            "name": "Delete UAV",
+                            "request": {
+                                "method": "DELETE",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/uavs/{{uavId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "uavs",
+                                        "{{uavId}}"
+                                    ]
+                                },
+                                "description": "Soft delete UAV by id."
+                            }
                         }
-                    }
+                    ]
                 },
                 {
-                    "name": "Get Mission Telemetry",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
+                    "name": "Dockings",
+                    "description": "Docking records linked to UAVs.",
+                    "item": [
+                        {
+                            "name": "Create Docking",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"uav_id\": {{uavId}},\n  \"name\": \"Docking A\",\n  \"location_name\": \"Hangar 1\",\n  \"latitude\": -6.2,\n  \"longitude\": 106.8,\n  \"is_primary\": true,\n  \"is_active\": true\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/dockings",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "dockings"
+                                    ]
+                                }
                             },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/get-telemetry/{{missionId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "get-telemetry",
-                                "{{missionId}}"
-                            ]
+                            "description": "Create a docking record for a UAV. Only owner JWT is allowed."
+                        },
+                        {
+                            "name": "Update Docking",
+                            "request": {
+                                "method": "PATCH",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"name\": \"Docking A (Updated)\",\n  \"is_primary\": true,\n  \"is_active\": true\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/dockings/{{dockingId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "dockings",
+                                        "{{dockingId}}"
+                                    ]
+                                }
+                            },
+                            "description": "Update docking fields. `uav_id` cannot be updated."
+                        },
+                        {
+                            "name": "Delete Docking",
+                            "request": {
+                                "method": "DELETE",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/dockings/{{dockingId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "dockings",
+                                        "{{dockingId}}"
+                                    ]
+                                }
+                            },
+                            "description": "Delete a docking record by ID."
                         }
-                    }
+                    ]
                 }
             ]
         },
         {
-            "name": "Realtime",
-            "description": "Realtime telemetry ingestion and WS connection.",
+            "name": "05 Missions",
+            "description": "Mission planning, listing, and execution entry points.",
             "item": [
                 {
-                    "name": "Submit Realtime Telemetry",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
+                    "name": "Planning & CRUD",
+                    "description": "Create and manage mission definitions.",
+                    "item": [
+                        {
+                            "name": "Create Mission",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"uav_id\": {{uavId}},\n  \"mission_name\": \"Test Mission\",\n  \"schedule\": \"2026-03-14T08:00:00Z\",\n  \"is_recurring\": true,\n  \"recurrence_unit\": \"hour\",\n  \"recurrence_interval\": 4,\n  \"status\": \"Waiting\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 10.0,\n      \"action\": \"hold\",\n      \"action_duration\": 5\n    }\n  ]\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/register-mission",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "register-mission"
+                                    ]
+                                },
+                                "description": "Creates mission for the authenticated user. user_id is inferred from JWT. Recurring missions may include `recurrence_unit` (`hour` or `day`) and `recurrence_interval` (> 0). If `is_recurring=true` and those fields are omitted, the backend falls back to daily recurrence every 1 day."
                             }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"telemetry\",\n  \"metric\": \"battery\",\n  \"payload\": {\n    \"percent\": 78.2,\n    \"voltage\": 15.6\n  }\n}"
                         },
-                        "url": {
-                            "raw": "{{baseUrl}}/realtime/telemetry",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "realtime",
-                                "telemetry"
-                            ]
+                        {
+                            "name": "List My Missions",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/me?page={{page}}&limit={{limit}}&uav_id={{uavId}}&date={{missionDate}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "me"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "page",
+                                            "value": "{{page}}"
+                                        },
+                                        {
+                                            "key": "limit",
+                                            "value": "{{limit}}"
+                                        },
+                                        {
+                                            "key": "uav_id",
+                                            "value": "{{uavId}}",
+                                            "disabled": true
+                                        },
+                                        {
+                                            "key": "date",
+                                            "value": "{{missionDate}}",
+                                            "disabled": true
+                                        }
+                                    ]
+                                }
+                            },
+                            "description": "Returns missions for the authenticated user (paginated). Optional `uav_id` filter and optional exact `date` filter (`YYYY-MM-DD`, matched against the schedule date prefix). Includes waypoint_count and uav details; waypoints are not returned."
+                        },
+                        {
+                            "name": "List Missions By User",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/user/{{userId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "user",
+                                        "{{userId}}"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "uav_id",
+                                            "value": "{{uavId}}",
+                                            "disabled": true
+                                        }
+                                    ]
+                                }
+                            },
+                            "description": "Lists missions for a specific user. Optional `uav_id` filters the result to one UAV."
+                        },
+                        {
+                            "name": "Get Mission By ID",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/{{missionId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "{{missionId}}"
+                                    ]
+                                }
+                            },
+                            "description": "Returns one mission by ID, including its full waypoint list."
+                        },
+                        {
+                            "name": "Update Mission",
+                            "request": {
+                                "method": "PATCH",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"mission_name\": \"Test Mission Updated\",\n  \"schedule\": \"2026-03-14T12:00:00Z\",\n  \"is_recurring\": true,\n  \"recurrence_unit\": \"hour\",\n  \"recurrence_interval\": 6,\n  \"status\": \"Waiting\",\n  \"waypoints\": [\n    {\n      \"sequence_order\": 1,\n      \"latitude\": 0.0,\n      \"longitude\": 0.0,\n      \"altitude\": 20.0,\n      \"action\": \"hold\",\n      \"action_duration\": 10\n    }\n  ]\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/{{missionId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "{{missionId}}"
+                                    ]
+                                }
+                            },
+                            "description": "Updates a mission. Send only fields to change. If `waypoints` is provided, all existing waypoints are replaced. Rejected with 409 if the mission has an active run."
+                        },
+                        {
+                            "name": "Delete Mission",
+                            "request": {
+                                "method": "DELETE",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/{{missionId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "{{missionId}}"
+                                    ]
+                                }
+                            },
+                            "description": "Soft-deletes a mission. Rejected with 409 if the mission has an active run."
                         }
-                    }
+                    ]
                 },
                 {
-                    "name": "Update UAV Status",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
+                    "name": "Execution & Device Polling",
+                    "description": "Endpoints used by operators and device services during mission execution.",
+                    "item": [
+                        {
+                            "name": "Start Mission",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/{{missionId}}/start",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "{{missionId}}",
+                                        "start"
+                                    ]
+                                },
+                                "description": "Starts a mission run and returns history_id. The new mission_history row begins at status PreparingDock."
                             },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"status\",\n  \"metric\": \"uav_status\",\n  \"payload\": {\n    \"battery_percent\": 80,\n    \"is_in_flight\": false,\n    \"is_docked\": true\n  }\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/realtime/telemetry",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "realtime",
-                                "telemetry"
-                            ]
-                        }
-                    },
-                    "description": "Upsert UAV status via realtime ingestion (kind=status, metric=uav_status). Requires UAV device token or owner JWT."
-                },
-                {
-                    "name": "Update Docking Status",
-                    "request": {
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Authorization",
-                                "value": "Bearer {{authToken}}"
-                            },
-                            {
-                                "key": "X-Device-Token",
-                                "value": "{{deviceToken}}",
-                                "disabled": true
-                            },
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"status\",\n  \"metric\": \"docking_status\",\n  \"payload\": {\n    \"docking_id\": {{dockingId}},\n    \"is_online\": false,\n    \"door_open\": false,\n    \"drone_present\": false,\n    \"charging\": false,\n    \"temperature\": 28.5\n  }\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/realtime/telemetry",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "realtime",
-                                "telemetry"
-                            ]
-                        }
-                    },
-                    "description": "Upsert docking status via realtime ingestion (kind=status, metric=docking_status). Requires docking device token; optionally include `docking_id` if using UAV token/JWT. If your docking service still needs IDs locally, call GET /device-context once at startup and reuse the returned docking_id / resolved_uav_id."
-                },
-                {
-                    "name": "WebSocket Telemetry",
-                    "request": {
-                        "method": "GET",
-                        "url": {
-                            "raw": "{{wsBaseUrl}}/ws/telemetry?token={{wsToken}}",
-                            "host": [
-                                "{{wsBaseUrl}}"
-                            ],
-                            "path": [
-                                "ws",
-                                "telemetry"
-                            ],
-                            "query": [
+                            "event": [
                                 {
-                                    "key": "token",
-                                    "value": "{{wsToken}}"
+                                    "listen": "test",
+                                    "script": {
+                                        "type": "text/javascript",
+                                        "exec": [
+                                            "const data = pm.response.json();",
+                                            "if (data && data.history_id) {",
+                                            "  pm.collectionVariables.set('historyId', data.history_id);",
+                                            "}"
+                                        ]
+                                    }
                                 }
                             ]
                         },
-                        "description": "Connect with ws:// and a valid wsToken from /auth/ws-token. After connect, send {\"type\":\"subscribe\",\"uav_ids\":[{{uavId}}]} to receive updates, or {\"type\":\"publish\",\"uav_id\":{{uavId}},\"kind\":\"telemetry\",\"metric\":\"battery\",\"payload\":{\"percent\":78.2}} to publish telemetry directly over the same socket."
-                    }
+                        {
+                            "name": "Get Waiting Mission (Device)",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}"
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/waiting/device",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "waiting",
+                                        "device"
+                                    ]
+                                }
+                            },
+                            "description": "Returns the nearest upcoming mission with status Waiting for the authenticated device. The backend derives the UAV from X-Device-Token (UAV token directly, docking token via docking->UAV mapping). Mission responses also include optional recurrence_unit and recurrence_interval."
+                        },
+                        {
+                            "name": "Get SafeToFly Mission (Device)",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}"
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/missions/safe-to-fly/device",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "missions",
+                                        "safe-to-fly",
+                                        "device"
+                                    ]
+                                }
+                            },
+                            "description": "Returns the active mission run whose runtime status is SafeToFly for the authenticated device. The backend derives the UAV from X-Device-Token. Response keeps the same mission fields and waypoint list as the next-mission flow, plus history_id and runtime_status.",
+                            "event": [
+                                {
+                                    "listen": "test",
+                                    "script": {
+                                        "type": "text/javascript",
+                                        "exec": [
+                                            "const data = pm.response.json();",
+                                            "if (data && data.history_id) {",
+                                            "  pm.collectionVariables.set('historyId', data.history_id);",
+                                            "}"
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Get Current Mission (Device)",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}"
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission/current",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission",
+                                        "current"
+                                    ]
+                                }
+                            },
+                            "description": "Returns the current active mission_history for the authenticated device token, regardless of runtime state. Response includes `has_active_mission` and, when active, mission and history identifiers.",
+                            "event": [
+                                {
+                                    "listen": "test",
+                                    "script": {
+                                        "type": "text/javascript",
+                                        "exec": [
+                                            "const data = pm.response.json();",
+                                            "if (data && (data.history_id || data.mission_history_id)) {",
+                                            "  pm.collectionVariables.set('historyId', data.history_id || data.mission_history_id);",
+                                            "}"
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    ]
                 }
             ]
         },
         {
-            "name": "Assets",
-            "description": "Locations and media uploads.",
+            "name": "06 Mission Runtime",
+            "description": "Mission run history, runtime state, media, and batch telemetry.",
+            "item": [
+                {
+                    "name": "History & State",
+                    "description": "Inspect and transition mission runtime state.",
+                    "item": [
+                        {
+                            "name": "List My Mission History",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-history/me?page={{page}}&limit={{limit}}&mission_id={{missionId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-history",
+                                        "me"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "page",
+                                            "value": "{{page}}"
+                                        },
+                                        {
+                                            "key": "limit",
+                                            "value": "{{limit}}"
+                                        },
+                                        {
+                                            "key": "mission_id",
+                                            "value": "{{missionId}}",
+                                            "disabled": true
+                                        }
+                                    ]
+                                },
+                                "description": "List mission history entries for the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page). Optional `mission_id` to filter by mission. Each item also includes `media_count` so the client can show the number of uploaded files for that run."
+                            }
+                        },
+                        {
+                            "name": "Get Mission State",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-history/{{historyId}}/state",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-history",
+                                        "{{historyId}}",
+                                        "state"
+                                    ]
+                                }
+                            },
+                            "description": "Returns the latest persisted runtime state for one mission run, including status, terminal flag, failure details, completed_at, and last_event_at."
+                        },
+                        {
+                            "name": "Update Mission State",
+                            "request": {
+                                "method": "PATCH",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"status\": \"SafeToFly\",\n  \"message\": \"Dock prepared and launch area clear\"\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-history/{{historyId}}/state",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-history",
+                                        "{{historyId}}",
+                                        "state"
+                                    ]
+                                },
+                                "description": "Updates the runtime state of a mission run. Valid normal flow: PreparingDock -> SafeToFly -> Takeoff -> DockConfirmed, with optional Takeoff -> InFlight -> DockConfirmed when the drone still has connectivity. Any non-terminal state may also move to Failed or Aborted."
+                            }
+                        },
+                        {
+                            "name": "Complete Mission",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-history/{{historyId}}/complete",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-history",
+                                        "{{historyId}}",
+                                        "complete"
+                                    ]
+                                },
+                                "description": "Completes a mission run using history_id from /missions/{id}/start. This endpoint expects the current mission_history status to be DockConfirmed. For recurring missions, the backend sets mission_status back to Waiting and recalculates the next schedule using recurrence_unit/recurrence_interval."
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Events & Media",
+                    "description": "Mission event timeline and media files for one run.",
+                    "item": [
+                        {
+                            "name": "List Mission Events",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-history/{{historyId}}/events",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-history",
+                                        "{{historyId}}",
+                                        "events"
+                                    ]
+                                }
+                            },
+                            "description": "Lists the event timeline for one mission run, including from_state, to_state, result, failure_code, message, is_terminal, and created_at."
+                        },
+                        {
+                            "name": "List Mission Media",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-history/{{historyId}}/media?event_id={{eventId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-history",
+                                        "{{historyId}}",
+                                        "media"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "event_id",
+                                            "value": "{{eventId}}",
+                                            "disabled": true
+                                        }
+                                    ]
+                                },
+                                "description": "Lists media files attached to one mission run. Optional `event_id` filters media attached to one mission_event."
+                            }
+                        },
+                        {
+                            "name": "Upload Mission Media",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "event_id",
+                                            "value": "{{eventId}}",
+                                            "type": "text",
+                                            "disabled": true
+                                        },
+                                        {
+                                            "key": "files",
+                                            "type": "file",
+                                            "src": ""
+                                        }
+                                    ]
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-history/{{historyId}}/media",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-history",
+                                        "{{historyId}}",
+                                        "media"
+                                    ]
+                                },
+                                "description": "Uploads one or more image/video files to a mission run. Use repeated `files` fields for multi-file upload. Optional `event_id` links the files to a specific mission_event."
+                            }
+                        },
+                        {
+                            "name": "Download Mission Media",
+                            "request": {
+                                "method": "GET",
+                                "url": {
+                                    "raw": "{{baseUrl}}/mission-media/{{mediaId}}/download",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "mission-media",
+                                        "{{mediaId}}",
+                                        "download"
+                                    ]
+                                }
+                            },
+                            "description": "Download one uploaded mission media file as an attachment without auth. Use `download_path` from upload/list responses or provide `mediaId` directly."
+                        }
+                    ]
+                },
+                {
+                    "name": "Telemetry",
+                    "description": "Persisted mission telemetry data.",
+                    "item": [
+                        {
+                            "name": "Submit Telemetry Batch",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"logs\": [\n    {\n      \"mission_id\": {{missionId}},\n      \"uav_id\": {{uavId}},\n      \"waypoints\": 1,\n      \"altitude\": 100,\n      \"coordinate\": \"-6.2,106.8\",\n      \"battery\": 80,\n      \"timestamp\": \"2025-01-01T00:00:00Z\"\n    }\n  ]\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/telemetry",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "telemetry"
+                                    ]
+                                }
+                            },
+                            "description": "Stores batch telemetry logs for a mission run."
+                        },
+                        {
+                            "name": "Get Mission Telemetry",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    }
+                                ],
+                                "url": {
+                                    "raw": "{{baseUrl}}/get-telemetry/{{missionId}}",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "get-telemetry",
+                                        "{{missionId}}"
+                                    ]
+                                }
+                            },
+                            "description": "Returns stored telemetry rows for one mission."
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "07 Realtime",
+            "description": "Realtime HTTP ingestion and WebSocket access.",
+            "item": [
+                {
+                    "name": "HTTP Ingestion",
+                    "description": "Publish telemetry and status snapshots over HTTP.",
+                    "item": [
+                        {
+                            "name": "Publish Telemetry",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"telemetry\",\n  \"metric\": \"battery\",\n  \"payload\": {\n    \"percent\": 78.2,\n    \"voltage\": 15.6\n  }\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/realtime/telemetry",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "realtime",
+                                        "telemetry"
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "name": "Upsert UAV Status",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"status\",\n  \"metric\": \"uav_status\",\n  \"payload\": {\n    \"battery_percent\": 80,\n    \"is_in_flight\": false,\n    \"is_docked\": true\n  }\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/realtime/telemetry",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "realtime",
+                                        "telemetry"
+                                    ]
+                                }
+                            },
+                            "description": "Upsert UAV status via realtime ingestion (kind=status, metric=uav_status). Requires UAV device token or owner JWT."
+                        },
+                        {
+                            "name": "Upsert Docking Status",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Authorization",
+                                        "value": "Bearer {{authToken}}"
+                                    },
+                                    {
+                                        "key": "X-Device-Token",
+                                        "value": "{{deviceToken}}",
+                                        "disabled": true
+                                    },
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"uav_id\": {{uavId}},\n  \"kind\": \"status\",\n  \"metric\": \"docking_status\",\n  \"payload\": {\n    \"docking_id\": {{dockingId}},\n    \"is_online\": false,\n    \"door_open\": false,\n    \"drone_present\": false,\n    \"charging\": false,\n    \"temperature\": 28.5\n  }\n}"
+                                },
+                                "url": {
+                                    "raw": "{{baseUrl}}/realtime/telemetry",
+                                    "host": [
+                                        "{{baseUrl}}"
+                                    ],
+                                    "path": [
+                                        "realtime",
+                                        "telemetry"
+                                    ]
+                                }
+                            },
+                            "description": "Upsert docking status via realtime ingestion (kind=status, metric=docking_status). Requires docking device token; optionally include `docking_id` if using UAV token/JWT. If your docking service still needs IDs locally, call GET /device-context once at startup and reuse the returned docking_id / resolved_uav_id."
+                        }
+                    ]
+                },
+                {
+                    "name": "WebSocket",
+                    "description": "Connect clients for realtime subscribe/publish flows.",
+                    "item": [
+                        {
+                            "name": "Connect WebSocket Telemetry",
+                            "request": {
+                                "method": "GET",
+                                "url": {
+                                    "raw": "{{wsBaseUrl}}/ws/telemetry?token={{wsToken}}",
+                                    "host": [
+                                        "{{wsBaseUrl}}"
+                                    ],
+                                    "path": [
+                                        "ws",
+                                        "telemetry"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "token",
+                                            "value": "{{wsToken}}"
+                                        }
+                                    ]
+                                },
+                                "description": "Connect with ws:// and a valid wsToken from /auth/ws-token. After connect, send {\"type\":\"subscribe\",\"uav_ids\":[{{uavId}}]} to receive updates, or {\"type\":\"publish\",\"uav_id\":{{uavId}},\"kind\":\"telemetry\",\"metric\":\"battery\",\"payload\":{\"percent\":78.2}} to publish telemetry directly over the same socket."
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "08 Assets & Public Files",
+            "description": "Location lookup and public file-download endpoints.",
             "item": [
                 {
                     "name": "Get Latest Location",
@@ -1684,7 +1722,8 @@
                                 "{{locationId}}"
                             ]
                         }
-                    }
+                    },
+                    "description": "Returns the latest saved location row for the given numeric entity type and entity ID."
                 },
                 {
                     "name": "Get Footage File",
@@ -1702,24 +1741,6 @@
                         }
                     },
                     "description": "Fetch uploaded media by filename without auth. Use `public_path` from upload/list responses and strip the leading `/footages/` into `{{footageFile}}`."
-                },
-                {
-                    "name": "Download Mission Media",
-                    "request": {
-                        "method": "GET",
-                        "url": {
-                            "raw": "{{baseUrl}}/mission-media/{{mediaId}}/download",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "mission-media",
-                                "{{mediaId}}",
-                                "download"
-                            ]
-                        }
-                    },
-                    "description": "Download one uploaded mission media file as an attachment without auth. Use `download_path` from upload/list responses or provide `mediaId` directly."
                 }
             ]
         }
@@ -1746,11 +1767,27 @@
             "value": ""
         },
         {
-            "key": "historyId",
+            "key": "userId",
+            "value": "1"
+        },
+        {
+            "key": "uavId",
+            "value": "1"
+        },
+        {
+            "key": "resolvedUavId",
             "value": ""
         },
         {
-            "key": "mediaId",
+            "key": "dockingId",
+            "value": "1"
+        },
+        {
+            "key": "missionId",
+            "value": "1"
+        },
+        {
+            "key": "historyId",
             "value": ""
         },
         {
@@ -1758,16 +1795,8 @@
             "value": ""
         },
         {
-            "key": "missionId",
-            "value": "1"
-        },
-        {
-            "key": "userId",
-            "value": "1"
-        },
-        {
-            "key": "uavId",
-            "value": "1"
+            "key": "mediaId",
+            "value": ""
         },
         {
             "key": "locationType",
@@ -1786,12 +1815,12 @@
             "value": "20"
         },
         {
-            "key": "footageFile",
-            "value": "example.mp4"
+            "key": "missionDate",
+            "value": ""
         },
         {
-            "key": "dockingId",
-            "value": "1"
+            "key": "footageFile",
+            "value": "example.mp4"
         }
     ]
 }

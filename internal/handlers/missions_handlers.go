@@ -282,30 +282,6 @@ func (h *Handlers) SaveNewMission(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{"id": missionID, "message": "Mission saved successfully"})
 }
 
-func (h *Handlers) GetAllMissions(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query(`SELECT id, user_id, uav_id, mission_name, schedule, is_recurring, recurrence_unit, recurrence_interval, status, created_at FROM missions WHERE deleted_at IS NULL ORDER BY created_at DESC`)
-	if err != nil {
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	defer rows.Close()
-
-	missions := []models.Mission{}
-	for rows.Next() {
-		var m models.Mission
-		var recurrenceUnit sql.NullString
-		var recurrenceInterval sql.NullInt32
-		if err := rows.Scan(&m.ID, &m.UserID, &m.UavID, &m.MissionName, &m.Schedule, &m.IsRecurring, &recurrenceUnit, &recurrenceInterval, &m.Status, &m.Timestamp); err != nil {
-			log.Printf("Error scanning mission: %v", err)
-			continue
-		}
-		assignMissionRecurrence(&m, recurrenceUnit, recurrenceInterval)
-		missions = append(missions, m)
-	}
-
-	respondWithJSON(w, http.StatusOK, missions)
-}
-
 func (h *Handlers) GetMissionsForCurrentUser(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.requireUserID(w, r)
 	if !ok {

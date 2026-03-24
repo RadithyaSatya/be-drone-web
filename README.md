@@ -27,6 +27,14 @@ Import the Postman collection to analyze and test all of the available endpoints
 
 [View Postman Collection](https://rishaldy7-8367785.postman.co/workspace/rishaldy-7's-Workspace~acebe5a2-c112-41c1-84f4-3b3a4ed315e0/collection/50620325-c209fda0-c9b4-49c4-9be1-8fe051320cf7?action=share&creator=50620325)
 
+## Initial Account
+
+Default account bootstrap endpoint has been removed. Use the seeded account from [db.sql](db.sql):
+
+- email: `user@example.com`
+- username: `user`
+- password: `password`
+
 ---
 
 ## UAV Dropdown
@@ -333,8 +341,8 @@ Notes:
 - `POST /auth/login`
 ```json
 {
-  "username": "admin",
-  "password": "admin123"
+  "username": "user",
+  "password": "password"
 }
 ```
 
@@ -347,6 +355,7 @@ Response:
 Notes:
 - Credentials are validated against the `users` table.
 - Passwords are stored as bcrypt hashes by default.
+- Initial seeded credentials are defined in [db.sql](db.sql) and use the legacy `sha256:<salt>:<hash>` format that is still accepted by login.
 
 ### Add User (JWT or Device Token)
 - `POST /register-user`
