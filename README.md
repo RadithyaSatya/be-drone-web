@@ -204,6 +204,7 @@ Behavior notes:
 - For `kind=telemetry`, the backend broadcasts the message and does not persist the telemetry payload to the database.
 - For `kind=status`, the backend upserts `uav_status` or `docking_status`, updates `last_heartbeat`, then broadcasts the resulting status snapshot.
 - For `metric=uav_status`, `uav_id` must be the UAV `id`.
+- For `metric=uav_status`, omitted fields keep their previous stored value, while an explicit JSON `null` clears the stored value for that field.
 - For `metric=docking_status`, the backend resolves which docking row to update:
   - with a docking-scoped device token, it updates that docking
   - with a UAV-scoped token or owner JWT, include `docking_id` in `payload` to target a specific docking for that UAV

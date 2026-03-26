@@ -27,6 +27,16 @@ const (
 	statusMetricDocking = "docking_status"
 )
 
+type optionalIntField struct {
+	Present bool
+	Value   *int
+}
+
+type optionalBoolField struct {
+	Present bool
+	Value   *bool
+}
+
 func (h *Handlers) SubmitRealtimeTelemetry(w http.ResponseWriter, r *http.Request) {
 	if h.RealtimeHub == nil {
 		respondWithJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "realtime hub not ready"})
@@ -110,38 +120,38 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	batteryPercent, err := getPayloadInt(req.Payload, "battery_percent")
+	batteryPercent, err := getPayloadOptionalInt(req.Payload, "battery_percent")
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if batteryPercent != nil && (*batteryPercent < 0 || *batteryPercent > 100) {
+	if batteryPercent.Value != nil && (*batteryPercent.Value < 0 || *batteryPercent.Value > 100) {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "battery_percent must be between 0 and 100"})
 		return
 	}
 
-	isInFlight, err := getPayloadBool(req.Payload, "is_in_flight")
+	isInFlight, err := getPayloadOptionalBool(req.Payload, "is_in_flight")
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	isDocked, err := getPayloadBool(req.Payload, "is_docked")
+	isDocked, err := getPayloadOptionalBool(req.Payload, "is_docked")
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	var battery sql.NullInt32
-	if batteryPercent != nil {
-		battery = sql.NullInt32{Int32: int32(*batteryPercent), Valid: true}
+	if batteryPercent.Value != nil {
+		battery = sql.NullInt32{Int32: int32(*batteryPercent.Value), Valid: true}
 	}
 	var inFlight sql.NullBool
-	if isInFlight != nil {
-		inFlight = sql.NullBool{Bool: *isInFlight, Valid: true}
+	if isInFlight.Value != nil {
+		inFlight = sql.NullBool{Bool: *isInFlight.Value, Valid: true}
 	}
 	var docked sql.NullBool
-	if isDocked != nil {
-		docked = sql.NullBool{Bool: *isDocked, Valid: true}
+	if isDocked.Value != nil {
+		docked = sql.NullBool{Bool: *isDocked.Value, Valid: true}
 	}
 
 	lastHeartbeat := time.Now().UTC()
@@ -155,9 +165,9 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 		INSERT INTO uav_status (uav_id, battery_percent, is_in_flight, is_docked, last_heartbeat)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (uav_id) DO UPDATE SET
-			battery_percent = COALESCE(EXCLUDED.battery_percent, uav_status.battery_percent),
-			is_in_flight = COALESCE(EXCLUDED.is_in_flight, uav_status.is_in_flight),
-			is_docked = COALESCE(EXCLUDED.is_docked, uav_status.is_docked),
+			battery_percent = CASE WHEN $6 THEN EXCLUDED.battery_percent ELSE uav_status.battery_percent END,
+			is_in_flight = CASE WHEN $7 THEN EXCLUDED.is_in_flight ELSE uav_status.is_in_flight END,
+			is_docked = CASE WHEN $8 THEN EXCLUDED.is_docked ELSE uav_status.is_docked END,
 			last_heartbeat = EXCLUDED.last_heartbeat
 		RETURNING battery_percent, is_in_flight, is_docked, last_heartbeat`,
 		uavID,
@@ -165,6 +175,9 @@ func (h *Handlers) handleRealtimeUavStatus(w http.ResponseWriter, r *http.Reques
 		inFlight,
 		docked,
 		lastHeartbeat,
+		batteryPercent.Present,
+		isInFlight.Present,
+		isDocked.Present,
 	).Scan(&storedBattery, &storedInFlight, &storedDocked, &storedHeartbeat)
 	if err != nil {
 		log.Printf("Failed to upsert UAV status: %v", err)
@@ -533,6 +546,25 @@ func getPayloadInt(payload map[string]interface{}, key string) (*int, error) {
 	if !ok || value == nil {
 		return nil, nil
 	}
+	return parsePayloadIntValue(value, key)
+}
+
+func getPayloadOptionalInt(payload map[string]interface{}, key string) (optionalIntField, error) {
+	value, ok := payload[key]
+	if !ok {
+		return optionalIntField{}, nil
+	}
+	if value == nil {
+		return optionalIntField{Present: true}, nil
+	}
+	parsed, err := parsePayloadIntValue(value, key)
+	if err != nil {
+		return optionalIntField{}, err
+	}
+	return optionalIntField{Present: true, Value: parsed}, nil
+}
+
+func parsePayloadIntValue(value interface{}, key string) (*int, error) {
 	switch v := value.(type) {
 	case float64:
 		parsed := int(v)
@@ -593,6 +625,25 @@ func getPayloadBool(payload map[string]interface{}, key string) (*bool, error) {
 	if !ok || value == nil {
 		return nil, nil
 	}
+	return parsePayloadBoolValue(value, key)
+}
+
+func getPayloadOptionalBool(payload map[string]interface{}, key string) (optionalBoolField, error) {
+	value, ok := payload[key]
+	if !ok {
+		return optionalBoolField{}, nil
+	}
+	if value == nil {
+		return optionalBoolField{Present: true}, nil
+	}
+	parsed, err := parsePayloadBoolValue(value, key)
+	if err != nil {
+		return optionalBoolField{}, err
+	}
+	return optionalBoolField{Present: true, Value: parsed}, nil
+}
+
+func parsePayloadBoolValue(value interface{}, key string) (*bool, error) {
 	switch v := value.(type) {
 	case bool:
 		parsed := v
