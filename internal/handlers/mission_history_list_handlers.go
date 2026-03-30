@@ -68,7 +68,21 @@ func (h *Handlers) ListMissionHistory(w http.ResponseWriter, r *http.Request) {
 		args = append(args, missionID)
 	}
 	query += `
-        ORDER BY completed_at DESC NULLS LAST, created_at DESC
+        ORDER BY
+            CASE
+                WHEN completed_at IS NULL
+                 AND status NOT IN ('Completed', 'Failed', 'Aborted')
+                THEN 0
+                ELSE 1
+            END ASC,
+            CASE
+                WHEN completed_at IS NULL
+                 AND status NOT IN ('Completed', 'Failed', 'Aborted')
+                THEN created_at
+                ELSE NULL
+            END DESC,
+            completed_at DESC NULLS LAST,
+            created_at DESC
         LIMIT $%d OFFSET $%d`
 	args = append(args, limit, offset)
 	query = fmt.Sprintf(query, len(args)-1, len(args))
