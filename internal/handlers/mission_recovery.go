@@ -14,6 +14,7 @@ const (
 	missionRecoveryPreparingDockMaxAge = 5 * time.Minute
 	missionRecoverySafeToFlyMaxAge     = 8 * time.Minute
 	missionRecoveryTakeoffMaxAge       = 30 * time.Minute
+	missionRecoveryLandedMaxAge        = 10 * time.Minute
 	missionRecoveryDockConfirmedMaxAge = 5 * time.Minute
 )
 
@@ -346,6 +347,16 @@ func decideMissionAutoRecovery(status string, lastActivity, now time.Time) (miss
 			FailureCode:   missionRecoveryFailureCode,
 			FailureReason: "Mission timed out while airborne after takeoff",
 			Message:       "Mission auto-failed after remaining in Takeoff too long",
+		}, true
+	case missionHistoryStatusLanded:
+		if elapsed < missionRecoveryLandedMaxAge {
+			return missionAutoRecoveryDecision{}, false
+		}
+		return missionAutoRecoveryDecision{
+			TargetStatus:  missionHistoryStatusFailed,
+			FailureCode:   missionRecoveryFailureCode,
+			FailureReason: "Mission timed out while waiting for dock confirmation after landing",
+			Message:       "Mission auto-failed after remaining in Landed too long",
 		}, true
 	case missionHistoryStatusDockConfirmed:
 		if elapsed < missionRecoveryDockConfirmedMaxAge {

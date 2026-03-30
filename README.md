@@ -794,6 +794,7 @@ Runtime states:
 - `PreparingDock`
 - `SafeToFly`
 - `Takeoff`
+- `Landed`
 - `DockConfirmed`
 - `Completed`
 - `Failed`
@@ -803,8 +804,9 @@ Normal transition flow:
 1. `PreparingDock`
 2. `SafeToFly`
 3. `Takeoff`
-4. `DockConfirmed`
-5. `Completed`
+4. `Landed`
+5. `DockConfirmed`
+6. `Completed`
 
 Terminal states:
 - `Completed`
@@ -814,7 +816,8 @@ Terminal states:
 Transition rules:
 - `PreparingDock -> SafeToFly`
 - `SafeToFly -> Takeoff`
-- `Takeoff -> DockConfirmed`
+- `Takeoff -> Landed`
+- `Landed -> DockConfirmed`
 - `DockConfirmed -> Completed`
 - Any non-terminal state can transition to `Failed` or `Aborted`
 
@@ -827,6 +830,7 @@ Automatic recovery:
   - `PreparingDock` older than `5m` -> `Aborted` with `MISSION_TIMEOUT`
   - `SafeToFly` older than `8m` -> `Aborted` with `MISSION_TIMEOUT`
   - `Takeoff` older than `30m` -> `Failed` with `MISSION_TIMEOUT`
+  - `Landed` older than `10m` -> `Failed` with `MISSION_TIMEOUT`
   - `DockConfirmed` older than `5m` without `complete` -> `Failed` with `MISSION_TIMEOUT`
 - Recurring missions that end as `Completed`, `Failed`, or `Aborted` are re-queued by setting the mission template back to `Waiting` and recalculating the next schedule.
 
@@ -874,8 +878,9 @@ Typical flow:
 1. Call `POST /missions/{id}/start` → store `history_id`.
 2. Docking updates run to `SafeToFly` with `PATCH /mission-history/{history_id}/state`.
 3. Drone updates run to `Takeoff`.
-4. Docking detects drone return and updates run to `DockConfirmed`.
-5. Call `POST /mission-history/{history_id}/complete`.
+4. Drone updates run to `Landed` after confirming touchdown.
+5. Docking detects recovery at the dock and updates run to `DockConfirmed`.
+6. Call `POST /mission-history/{history_id}/complete`.
 6. Upload media to `POST /mission-history/{history_id}/media` as needed.
 
 List history (paginated):

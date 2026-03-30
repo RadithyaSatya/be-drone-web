@@ -19,6 +19,7 @@ const (
 	missionHistoryStatusPreparingDock = "PreparingDock"
 	missionHistoryStatusSafeToFly     = "SafeToFly"
 	missionHistoryStatusTakeoff       = "Takeoff"
+	missionHistoryStatusLanded        = "Landed"
 	missionHistoryStatusDockConfirmed = "DockConfirmed"
 	missionHistoryStatusCompleted     = "Completed"
 	missionHistoryStatusFailed        = "Failed"
@@ -61,6 +62,8 @@ func normalizeMissionHistoryStatus(value string) string {
 		return missionHistoryStatusSafeToFly
 	case "takeoff":
 		return missionHistoryStatusTakeoff
+	case "landed":
+		return missionHistoryStatusLanded
 	case "dockconfirmed":
 		return missionHistoryStatusDockConfirmed
 	case "completed":
@@ -90,6 +93,8 @@ func canTransitionMissionHistoryStatus(from, to string) bool {
 	case missionHistoryStatusSafeToFly:
 		return to == missionHistoryStatusTakeoff || to == missionHistoryStatusFailed || to == missionHistoryStatusAborted
 	case missionHistoryStatusTakeoff:
+		return to == missionHistoryStatusLanded || to == missionHistoryStatusFailed || to == missionHistoryStatusAborted
+	case missionHistoryStatusLanded:
 		return to == missionHistoryStatusDockConfirmed || to == missionHistoryStatusFailed || to == missionHistoryStatusAborted
 	case missionHistoryStatusDockConfirmed:
 		return to == missionHistoryStatusCompleted || to == missionHistoryStatusFailed || to == missionHistoryStatusAborted

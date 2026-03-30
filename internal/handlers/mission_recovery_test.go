@@ -36,6 +36,13 @@ func TestDecideMissionAutoRecovery(t *testing.T) {
 			wantRecover:  true,
 		},
 		{
+			name:         "landed times out to failed",
+			status:       missionHistoryStatusLanded,
+			lastActivity: now.Add(-missionRecoveryLandedMaxAge - time.Second),
+			wantStatus:   missionHistoryStatusFailed,
+			wantRecover:  true,
+		},
+		{
 			name:         "dock confirmed times out to failed",
 			status:       missionHistoryStatusDockConfirmed,
 			lastActivity: now.Add(-missionRecoveryDockConfirmedMaxAge - time.Second),

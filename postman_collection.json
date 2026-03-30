@@ -1301,7 +1301,7 @@
                                         "state"
                                     ]
                                 },
-                                "description": "Updates the runtime state of a mission run. Valid normal flow: PreparingDock -> SafeToFly -> Takeoff -> DockConfirmed, with optional Takeoff -> InFlight -> DockConfirmed when the drone still has connectivity. Any non-terminal state may also move to Failed or Aborted."
+                                "description": "Updates the runtime state of a mission run. Valid normal flow: PreparingDock -> SafeToFly -> Takeoff -> Landed -> DockConfirmed. Use Landed when the drone confirms touchdown before the docking system confirms recovery at the dock. Any non-terminal state may also move to Failed or Aborted."
                             }
                         },
                         {

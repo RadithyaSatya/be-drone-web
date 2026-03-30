@@ -9,6 +9,7 @@ func TestNormalizeMissionHistoryStatus(t *testing.T) {
 		"safe-to-fly":    missionHistoryStatusSafeToFly,
 		"SAFE TO FLY":    missionHistoryStatusSafeToFly,
 		"takeoff":        missionHistoryStatusTakeoff,
+		"landed":         missionHistoryStatusLanded,
 		"DockConfirmed":  missionHistoryStatusDockConfirmed,
 		"completed":      missionHistoryStatusCompleted,
 		"failed":         missionHistoryStatusFailed,
@@ -31,11 +32,13 @@ func TestCanTransitionMissionHistoryStatus(t *testing.T) {
 	}{
 		{missionHistoryStatusPreparingDock, missionHistoryStatusSafeToFly, true},
 		{missionHistoryStatusSafeToFly, missionHistoryStatusTakeoff, true},
-		{missionHistoryStatusTakeoff, missionHistoryStatusDockConfirmed, true},
+		{missionHistoryStatusTakeoff, missionHistoryStatusLanded, true},
+		{missionHistoryStatusLanded, missionHistoryStatusDockConfirmed, true},
 		{missionHistoryStatusDockConfirmed, missionHistoryStatusCompleted, true},
 		{missionHistoryStatusPreparingDock, missionHistoryStatusFailed, true},
 		{missionHistoryStatusSafeToFly, missionHistoryStatusAborted, true},
 		{missionHistoryStatusPreparingDock, missionHistoryStatusTakeoff, false},
+		{missionHistoryStatusTakeoff, missionHistoryStatusDockConfirmed, false},
 		{missionHistoryStatusTakeoff, missionHistoryStatusCompleted, false},
 		{missionHistoryStatusCompleted, missionHistoryStatusFailed, false},
 	}
