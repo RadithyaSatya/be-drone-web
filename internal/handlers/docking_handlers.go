@@ -100,11 +100,6 @@ func (h *Handlers) CreateDocking(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) UpdateDocking(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.requireUserID(w, r)
-	if !ok {
-		return
-	}
-
 	vars := mux.Vars(r)
 	dockingID, err := strconv.Atoi(vars["id"])
 	if err != nil || dockingID <= 0 {
@@ -122,8 +117,12 @@ func (h *Handlers) UpdateDocking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uavID, ok := h.ensureDockingOwner(w, r, userID, dockingID)
+	uavID, ok := h.ensureDockingUpdateAccess(w, r, dockingID)
 	if !ok {
+		return
+	}
+	if isDeviceScopedRequest(r) && !isDeviceScopedDockingUpdateAllowed(req) {
+		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "device token may only update name, location_name, latitude, and longitude"})
 		return
 	}
 
@@ -296,4 +295,10 @@ func joinClauses(clauses []string, sep string) string {
 		result += sep + clauses[i]
 	}
 	return result
+}
+
+func isDeviceScopedDockingUpdateAllowed(req dockingUpsertRequest) bool {
+	return req.UavID == nil &&
+		req.IsPrimary == nil &&
+		req.IsActive == nil
 }

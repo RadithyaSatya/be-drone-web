@@ -64,6 +64,8 @@ CREATE TABLE uav (
     firmware_version VARCHAR(255),
     camera_spec VARCHAR(255),
     image_url TEXT,
+    home_latitude DOUBLE PRECISION CHECK (home_latitude BETWEEN -90 AND 90),
+    home_longitude DOUBLE PRECISION CHECK (home_longitude BETWEEN -180 AND 180),
     max_range_meter INT,
     max_flight_time_min INT,
     owner_id INT REFERENCES users(id) ON DELETE RESTRICT,

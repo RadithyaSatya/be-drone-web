@@ -21,15 +21,17 @@ const (
 )
 
 type uavUpsertRequest struct {
-	SerialNumber     *string `json:"serial_number"`
-	Name             *string `json:"name"`
-	Model            *string `json:"model"`
-	FirmwareVersion  *string `json:"firmware_version"`
-	CameraSpec       *string `json:"camera_spec"`
-	ImageURL         *string `json:"image_url"`
-	MaxRangeMeter    *int    `json:"max_range_meter"`
-	MaxFlightTimeMin *int    `json:"max_flight_time_min"`
-	IsActive         *bool   `json:"is_active"`
+	SerialNumber     *string  `json:"serial_number"`
+	Name             *string  `json:"name"`
+	Model            *string  `json:"model"`
+	FirmwareVersion  *string  `json:"firmware_version"`
+	CameraSpec       *string  `json:"camera_spec"`
+	ImageURL         *string  `json:"image_url"`
+	HomeLatitude     *float64 `json:"home_latitude"`
+	HomeLongitude    *float64 `json:"home_longitude"`
+	MaxRangeMeter    *int     `json:"max_range_meter"`
+	MaxFlightTimeMin *int     `json:"max_flight_time_min"`
+	IsActive         *bool    `json:"is_active"`
 }
 
 type createUavResponse struct {
@@ -77,6 +79,16 @@ func (h *Handlers) CreateUAV(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "max_flight_time_min must be >= 0"})
 		return
 	}
+	homeLatitude, err := nullLatitudePtr(req.HomeLatitude)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	homeLongitude, err := nullLongitudePtr(req.HomeLongitude)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 
 	isActive := true
 	if req.IsActive != nil {
@@ -86,8 +98,8 @@ func (h *Handlers) CreateUAV(w http.ResponseWriter, r *http.Request) {
 	var id int
 	var createdAt sql.NullTime
 	query := `
-		INSERT INTO uav (serial_number, name, model, firmware_version, camera_spec, image_url, max_range_meter, max_flight_time_min, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO uav (serial_number, name, model, firmware_version, camera_spec, image_url, home_latitude, home_longitude, max_range_meter, max_flight_time_min, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at`
 	err = h.DB.QueryRow(
 		query,
@@ -97,6 +109,8 @@ func (h *Handlers) CreateUAV(w http.ResponseWriter, r *http.Request) {
 		nullStringPtr(req.FirmwareVersion),
 		nullStringPtr(req.CameraSpec),
 		nullStringPtr(req.ImageURL),
+		homeLatitude,
+		homeLongitude,
 		maxRange,
 		maxFlight,
 		isActive,
@@ -126,7 +140,7 @@ func (h *Handlers) ListUAVs(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.Query(`
 		SELECT u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
-		       u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
+		       u.home_latitude, u.home_longitude, u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
 		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM uav u
 		LEFT JOIN uav_status s ON s.uav_id = u.id
@@ -283,7 +297,7 @@ func (h *Handlers) ListMyUAVs(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.Query(`
 		SELECT u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
-		       u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
+		       u.home_latitude, u.home_longitude, u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
 		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM uav u
 		LEFT JOIN uav_status s ON s.uav_id = u.id
@@ -347,7 +361,7 @@ func (h *Handlers) GetUAVByID(w http.ResponseWriter, r *http.Request) {
 
 	row := h.DB.QueryRow(`
 		SELECT u.id, u.serial_number, u.name, u.model, u.firmware_version, u.camera_spec, u.image_url,
-		       u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
+		       u.home_latitude, u.home_longitude, u.max_range_meter, u.max_flight_time_min, u.owner_id, u.is_active, u.created_at,
 		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM uav u
 		LEFT JOIN uav_status s ON s.uav_id = u.id
@@ -386,6 +400,13 @@ func (h *Handlers) UpdateUAV(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 		return
 	}
+	if !h.ensureUavUpdateAccess(w, r, id) {
+		return
+	}
+	if isDeviceScopedRequest(r) && !isDeviceScopedUavUpdateAllowed(req) {
+		respondWithJSON(w, http.StatusForbidden, map[string]string{"error": "device token may only update home_latitude, home_longitude, and max_range_meter"})
+		return
+	}
 
 	setClauses := []string{}
 	args := []interface{}{}
@@ -413,6 +434,24 @@ func (h *Handlers) UpdateUAV(w http.ResponseWriter, r *http.Request) {
 	if req.ImageURL != nil {
 		setClauses = append(setClauses, fmt.Sprintf("image_url = $%d", len(args)+1))
 		args = append(args, nullStringPtr(req.ImageURL))
+	}
+	if req.HomeLatitude != nil {
+		value, err := nullLatitudePtr(req.HomeLatitude)
+		if err != nil {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		setClauses = append(setClauses, fmt.Sprintf("home_latitude = $%d", len(args)+1))
+		args = append(args, value)
+	}
+	if req.HomeLongitude != nil {
+		value, err := nullLongitudePtr(req.HomeLongitude)
+		if err != nil {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		setClauses = append(setClauses, fmt.Sprintf("home_longitude = $%d", len(args)+1))
+		args = append(args, value)
 	}
 	if req.MaxRangeMeter != nil {
 		if *req.MaxRangeMeter < 0 {
@@ -446,10 +485,10 @@ func (h *Handlers) UpdateUAV(w http.ResponseWriter, r *http.Request) {
 			SET %s
 			WHERE id = $%d AND deleted_at IS NULL
 			RETURNING id, serial_number, name, model, firmware_version, camera_spec, image_url,
-			          max_range_meter, max_flight_time_min, owner_id, is_active, created_at
+			          home_latitude, home_longitude, max_range_meter, max_flight_time_min, owner_id, is_active, created_at
 		)
 		SELECT updated.id, updated.serial_number, updated.name, updated.model, updated.firmware_version, updated.camera_spec, updated.image_url,
-		       updated.max_range_meter, updated.max_flight_time_min, updated.owner_id, updated.is_active, updated.created_at,
+		       updated.home_latitude, updated.home_longitude, updated.max_range_meter, updated.max_flight_time_min, updated.owner_id, updated.is_active, updated.created_at,
 		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM updated
 		LEFT JOIN uav_status s ON s.uav_id = updated.id`,
@@ -499,10 +538,10 @@ func (h *Handlers) AssignUAVToUser(w http.ResponseWriter, r *http.Request) {
 			  AND deleted_at IS NULL
 			  AND (owner_id IS NULL OR owner_id = $1)
 			RETURNING id, serial_number, name, model, firmware_version, camera_spec, image_url,
-			          max_range_meter, max_flight_time_min, owner_id, is_active, created_at
+			          home_latitude, home_longitude, max_range_meter, max_flight_time_min, owner_id, is_active, created_at
 		)
 		SELECT updated.id, updated.serial_number, updated.name, updated.model, updated.firmware_version, updated.camera_spec, updated.image_url,
-		       updated.max_range_meter, updated.max_flight_time_min, updated.owner_id, updated.is_active, updated.created_at,
+		       updated.home_latitude, updated.home_longitude, updated.max_range_meter, updated.max_flight_time_min, updated.owner_id, updated.is_active, updated.created_at,
 		       s.battery_percent, s.is_in_flight, s.is_docked, s.last_heartbeat
 		FROM updated
 		LEFT JOIN uav_status s ON s.uav_id = updated.id`, userID, serial)
@@ -578,6 +617,8 @@ func scanUavRow(scanner rowScanner) (models.Uav, error) {
 	var firmware sql.NullString
 	var camera sql.NullString
 	var imageURL sql.NullString
+	var homeLatitude sql.NullFloat64
+	var homeLongitude sql.NullFloat64
 	var maxRange sql.NullInt32
 	var maxFlight sql.NullInt32
 	var owner sql.NullInt32
@@ -594,6 +635,8 @@ func scanUavRow(scanner rowScanner) (models.Uav, error) {
 		&firmware,
 		&camera,
 		&imageURL,
+		&homeLatitude,
+		&homeLongitude,
 		&maxRange,
 		&maxFlight,
 		&owner,
@@ -631,6 +674,14 @@ func scanUavRow(scanner rowScanner) (models.Uav, error) {
 	if imageURL.Valid {
 		value := imageURL.String
 		item.ImageURL = &value
+	}
+	if homeLatitude.Valid {
+		value := homeLatitude.Float64
+		item.HomeLatitude = &value
+	}
+	if homeLongitude.Valid {
+		value := homeLongitude.Float64
+		item.HomeLongitude = &value
 	}
 	if maxRange.Valid {
 		value := int(maxRange.Int32)
@@ -677,6 +728,37 @@ func nullStringPtr(value *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: trimmed, Valid: true}
+}
+
+func nullLatitudePtr(value *float64) (sql.NullFloat64, error) {
+	if value == nil {
+		return sql.NullFloat64{}, nil
+	}
+	if *value < -90 || *value > 90 {
+		return sql.NullFloat64{}, fmt.Errorf("home_latitude must be between -90 and 90")
+	}
+	return sql.NullFloat64{Float64: *value, Valid: true}, nil
+}
+
+func nullLongitudePtr(value *float64) (sql.NullFloat64, error) {
+	if value == nil {
+		return sql.NullFloat64{}, nil
+	}
+	if *value < -180 || *value > 180 {
+		return sql.NullFloat64{}, fmt.Errorf("home_longitude must be between -180 and 180")
+	}
+	return sql.NullFloat64{Float64: *value, Valid: true}, nil
+}
+
+func isDeviceScopedUavUpdateAllowed(req uavUpsertRequest) bool {
+	return req.SerialNumber == nil &&
+		req.Name == nil &&
+		req.Model == nil &&
+		req.FirmwareVersion == nil &&
+		req.CameraSpec == nil &&
+		req.ImageURL == nil &&
+		req.MaxFlightTimeMin == nil &&
+		req.IsActive == nil
 }
 
 func nullInt32Ptr(value *int) (sql.NullInt32, error) {

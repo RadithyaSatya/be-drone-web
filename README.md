@@ -530,12 +530,21 @@ curl -X POST http://127.0.0.1:8080/realtime/telemetry \
 ### Docking (Create/Update/Delete)
 - `POST /dockings` create docking for a UAV.
 - `PATCH /dockings/{id}` update docking fields (no `uav_id` update).
+  - owner JWT can update docking they own
+  - UAV device token can update dockings that belong to that UAV
+  - docking device token can update that docking only
+  - device token updates are limited to `name`, `location_name`, `latitude`, and `longitude`
 - `DELETE /dockings/{id}` delete docking.
 No docking list/get endpoints; docking data is returned via `GET /uavs/{id}`.
 
 ### UAV Details
 - `GET /uavs/{id}` returns UAV info with its docking list.
 - Each docking includes its latest `docking_status` (if available).
+- `PATCH /uavs/{id}`
+  - owner JWT can update UAV they own
+  - UAV device token can update that UAV only
+  - docking device token can update the UAV linked to that docking
+  - device token updates are limited to `home_latitude`, `home_longitude`, and `max_range_meter`
 
 ### Mission CRUD
 - `GET /missions/me` returns missions for the authenticated user with pagination.

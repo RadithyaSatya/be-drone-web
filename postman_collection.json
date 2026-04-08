@@ -441,7 +441,7 @@
                                         }
                                     ]
                                 },
-                                "description": "List UAVs with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
+                                "description": "List UAVs with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page). Each item may include home_latitude and home_longitude."
                             }
                         },
                         {
@@ -479,7 +479,7 @@
                                         }
                                     ]
                                 },
-                                "description": "List UAVs assigned to the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page)."
+                                "description": "List UAVs assigned to the authenticated user with pagination helpers (total_pages, has_next, has_prev, next_page, prev_page). Each item may include home_latitude and home_longitude."
                             }
                         },
                         {
@@ -537,7 +537,7 @@
                                     ]
                                 }
                             },
-                            "description": "Get UAV detail including latest status and dockings (with docking_status if available)."
+                            "description": "Get UAV detail including home_latitude, home_longitude, latest status, and dockings (with docking_status if available)."
                         },
                         {
                             "name": "Create UAV",
@@ -560,7 +560,7 @@
                                 ],
                                 "body": {
                                     "mode": "raw",
-                                    "raw": "{\n  \"serial_number\": \"SN-001\",\n  \"name\": \"Falcon-1\",\n  \"model\": \"XF-200\",\n  \"firmware_version\": \"1.0.0\",\n  \"camera_spec\": \"4K\",\n  \"image_url\": \"https://example.com/drone.jpg\",\n  \"max_range_meter\": 5000,\n  \"max_flight_time_min\": 45,\n  \"is_active\": true\n}"
+                                    "raw": "{\n  \"serial_number\": \"SN-001\",\n  \"name\": \"Falcon-1\",\n  \"model\": \"XF-200\",\n  \"firmware_version\": \"1.0.0\",\n  \"camera_spec\": \"4K\",\n  \"image_url\": \"https://example.com/drone.jpg\",\n  \"home_latitude\": -6.2001,\n  \"home_longitude\": 106.8167,\n  \"max_range_meter\": 5000,\n  \"max_flight_time_min\": 45,\n  \"is_active\": true\n}"
                                 },
                                 "url": {
                                     "raw": "{{baseUrl}}/uavs",
@@ -571,7 +571,7 @@
                                         "uavs"
                                     ]
                                 },
-                                "description": "Create a new UAV."
+                                "description": "Create a new UAV. home_latitude and home_longitude are optional and represent the UAV home/base coordinates."
                             }
                         },
                         {
@@ -631,7 +631,7 @@
                                 ],
                                 "body": {
                                     "mode": "raw",
-                                    "raw": "{\n  \"name\": \"Falcon-1A\",\n  \"firmware_version\": \"1.0.1\",\n  \"image_url\": \"https://example.com/drone-updated.jpg\",\n  \"is_active\": true\n}"
+                                    "raw": "{\n  \"name\": \"Falcon-1A\",\n  \"firmware_version\": \"1.0.1\",\n  \"image_url\": \"https://example.com/drone-updated.jpg\",\n  \"home_latitude\": -6.2105,\n  \"home_longitude\": 106.8296,\n  \"is_active\": true\n}"
                                 },
                                 "url": {
                                     "raw": "{{baseUrl}}/uavs/{{uavId}}",
@@ -643,7 +643,7 @@
                                         "{{uavId}}"
                                     ]
                                 },
-                                "description": "Update UAV fields (partial update)."
+                                "description": "Update UAV fields (partial update). With owner JWT, any owned UAV field may be updated. With X-Device-Token, access is scoped to the related UAV only; device token updates are limited to home_latitude, home_longitude, and max_range_meter."
                             }
                         },
                         {
@@ -775,7 +775,7 @@
                                 ],
                                 "body": {
                                     "mode": "raw",
-                                    "raw": "{\n  \"name\": \"Docking A (Updated)\",\n  \"is_primary\": true,\n  \"is_active\": true\n}"
+                                    "raw": "{\n  \"name\": \"Docking A (Updated)\",\n  \"location_name\": \"Hangar 1B\",\n  \"latitude\": -6.201,\n  \"longitude\": 106.801\n}"
                                 },
                                 "url": {
                                     "raw": "{{baseUrl}}/dockings/{{dockingId}}",
@@ -788,7 +788,7 @@
                                     ]
                                 }
                             },
-                            "description": "Update docking fields. `uav_id` cannot be updated."
+                            "description": "Update docking fields. `uav_id` cannot be updated. With owner JWT, any owned docking field except uav_id may be updated. With X-Device-Token, access is scoped to the related docking/UAV only; device token updates are limited to name, location_name, latitude, and longitude."
                         },
                         {
                             "name": "Delete Docking",
